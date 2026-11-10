@@ -6,6 +6,8 @@
 
 Hadal Station Kestrel is collapsing six kilometres below the surface. Its last escape capsule, EC-07, fires you out into the trench. Climb through five depth zones, past five bosses, and break the surface before your oxygen runs out.
 
+[Play the game live](https://itx-psycho0.github.io/Ejected-Cube/)
+
 ![Title screen](docs/screenshots/01-title.jpg)
 
 </div>
