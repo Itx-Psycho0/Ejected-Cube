@@ -477,6 +477,7 @@ table.records th {
   grid-template-rows: auto 1fr auto;
   font-variant-numeric: tabular-nums;
   transition: opacity 0.4s;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65), 0 0 12px rgba(0, 0, 0, 0.35);
 }
 .hud-top {
   display: flex;

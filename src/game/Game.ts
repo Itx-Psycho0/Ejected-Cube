@@ -447,7 +447,7 @@ export class Game {
     this.updateWorld(dt, 0);
     this.station.update(dt, 0);
     // Camera frames the docked capsule on the right side of the screen.
-    this.rig.offset.set(this.station.dock.x - 62 + Math.sin(this.modeTime * 0.15) * 8, this.station.dock.y + 16, -105);
+    this.rig.offset.set(this.station.dock.x - 48 + Math.sin(this.modeTime * 0.15) * 8, this.station.dock.y + 16, -105);
     this.player.update(dt, this.input, this.bounds, 0, -999);
     this.player.pos.set(this.station.dock.x + 4, this.station.dock.y + Math.sin(this.modeTime * 1.2) * 1.2);
     this.player.model.root.position.set(this.player.pos.x, this.player.pos.y, 0);

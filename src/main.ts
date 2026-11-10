@@ -23,3 +23,12 @@ if (!webglAvailable()) {
   void game.boot();
   if (import.meta.env.DEV) (window as unknown as { game: Game }).game = game;
 }
+
+// Offline support in production builds only (dev uses hot reload).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      /* offline mode is optional */
+    });
+  });
+}
