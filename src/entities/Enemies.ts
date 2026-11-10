@@ -210,14 +210,17 @@ export class Enemies {
   }
 
   /** Sonar ping: reveal and stun everything within the ring. */
-  reveal(x: number, y: number, radius: number) {
+  reveal(x: number, y: number, radius: number): number {
+    let n = 0;
     for (const e of this.list) {
       if (!e.active) continue;
       if (e.revealed < 4 && Math.hypot(e.pos.x - x, e.pos.y - y) < radius) {
         e.revealed = 5;
+        n++;
         if (e.kind === 'jelly' || e.kind === 'lanternfish') e.stunned = 1.6;
       }
     }
+    return n;
   }
 
   update(dt: number, ctx: EnemyContext) {

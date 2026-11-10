@@ -22,7 +22,7 @@ export class Lantern extends Boss {
   }
 
   private build() {
-    const skin = fleshMaterial(0x2b2428, { wet: true, emissive: 0x1a0a10, emissiveIntensity: 0.3 });
+    const skin = fleshMaterial(0x5a4a52, { wet: true, emissive: 0x1a3a48, emissiveIntensity: 0.55 });
     const body = new Mesh(lumpySphere(1, 4, 0.1, 1.4, 2), skin);
     body.scale.set(36, 28, 24);
     this.root.add(body);

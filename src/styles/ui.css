@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   gap: 24px;
   padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
@@ -166,7 +166,7 @@ h3 {
 /* ---------- title ---------- */
 #title {
   align-items: flex-start;
-  justify-content: center;
+  justify-content: safe center;
   padding-left: max(6vw, 16px);
   background: linear-gradient(90deg, rgba(3, 9, 20, 0.88) 0%, rgba(3, 9, 20, 0.55) 45%, rgba(3, 9, 20, 0) 75%);
 }
@@ -907,13 +907,78 @@ table.records th {
     font-size: 8px;
   }
   #bossbar {
-    top: 78px;
+    top: 104px;
     width: 86vw;
   }
   #title {
     background: linear-gradient(180deg, rgba(3, 9, 20, 0.2), rgba(3, 9, 20, 0.92) 55%);
     justify-content: flex-end;
   }
+}
+/* Short screens (phones in landscape, small laptop windows). */
+@media (max-height: 560px) {
+  .screen {
+    gap: 12px;
+  }
+  .title-block h1 {
+    font-size: clamp(34px, 11vh, 64px);
+  }
+  .title-block .sub {
+    margin-top: 4px;
+  }
+  .menu {
+    gap: 5px;
+  }
+  .btn {
+    padding: 9px 14px;
+    font-size: 12px;
+  }
+  .title-foot {
+    display: none;
+  }
+  .screen h2 {
+    font-size: clamp(22px, 7vh, 36px);
+  }
+  .panel {
+    padding: 14px 16px;
+  }
+  #title {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 40px;
+  }
+}
+/* Phones in portrait. */
+@media (max-width: 480px) {
+  .meter {
+    grid-template-columns: auto 64px 3ch;
+    gap: 6px;
+  }
+  .depth {
+    font-size: 30px;
+  }
+  .zone-prog {
+    display: none;
+  }
+  #toasts {
+    top: auto;
+    bottom: 46%;
+    left: 16px;
+    right: 16px;
+    align-items: center;
+  }
+  #hint {
+    top: 58%;
+    bottom: auto;
+    font-size: 12px;
+  }
+  .center-card {
+    top: 30%;
+  }
+}
+#hud.touch .ability kbd {
+  display: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .screen,

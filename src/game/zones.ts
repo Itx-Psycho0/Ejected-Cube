@@ -227,7 +227,7 @@ export const ZONES: readonly ZoneDef[] = [
     name: 'Sunlit Shelf',
     tagline: 'Two hundred metres to air. Something big does not want you to leave.',
     depthStart: 200,
-    depthEnd: 0,
+    depthEnd: 40,
     duration: 90,
     fog: 0x10627e,
     fogDensity: 0.0021,

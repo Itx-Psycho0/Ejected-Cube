@@ -30,10 +30,11 @@ export class Loop {
   private frame = (now: number) => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.frame);
-    const raw = Math.min((now - this.last) / 1000, 1 / 20);
+    const real = (now - this.last) / 1000;
+    const raw = Math.min(real, 1 / 20);
     this.last = now;
     this.elapsed += raw;
-    this.fpsAcc += raw;
+    this.fpsAcc += real;
     this.fpsFrames++;
     if (this.fpsAcc >= 0.5) {
       this.fps = this.fpsFrames / this.fpsAcc;

@@ -138,12 +138,14 @@ export class UI {
     el.querySelector('.status')!.textContent = 'Systems online';
     const tap = h(`<div class="tap">${matchMedia('(pointer: coarse)').matches ? 'Tap' : 'Click or press any key'} to wake the pod</div>`);
     el.appendChild(tap);
+    let done = false;
     const go = () => {
+      if (done) return;
+      done = true;
       window.removeEventListener('keydown', go);
-      el.removeEventListener('pointerdown', go);
       this.events.emit('begin', undefined);
     };
-    el.addEventListener('pointerdown', go);
+    el.addEventListener('click', go);
     window.addEventListener('keydown', go);
   }
 
@@ -522,6 +524,7 @@ export class UI {
 
   setHudVisible(v: boolean, touch = false) {
     this.hud.style.opacity = v ? '1' : '0';
+    this.hud.classList.toggle('touch', touch);
     this.els.touch.hidden = !(v && touch);
     this.els.pauseBtn.hidden = !(v && touch);
   }
@@ -538,7 +541,7 @@ export class UI {
   }
 
   updateHud(s: HudState) {
-    this.set('depth', formatInt(Math.max(0, s.depth)));
+    this.set('depth', formatInt(Math.max(0, Math.round(s.depth))));
     this.set('zone', `${s.zoneName} · ${s.zoneIndex + 1}/5`);
     this.set('zprog', `${(s.zoneProgress * 100).toFixed(1)}%`, 'width');
     const hp = s.hull / s.maxHull;

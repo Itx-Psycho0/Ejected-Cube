@@ -2,43 +2,24 @@ import '@fontsource-variable/bricolage-grotesque';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import './styles/base.css';
-import { Scene } from 'three';
-import { Renderer } from './core/Renderer';
-import { QUALITY, detectQuality } from './core/Quality';
-import { Loop } from './core/Loop';
-import { ZONES } from './game/zones';
-import { Atmosphere } from './world/Atmosphere';
-import { Seabed } from './world/Seabed';
-import { Fauna } from './world/Fauna';
-import { Player } from './entities/Player';
-import { Input } from './core/Input';
-import { Vector2 } from 'three';
+import { Game } from './game/Game';
 
-// Environment preview (temporary until the game wiring lands).
-const params = new URLSearchParams(location.search);
-const zone = ZONES[Number(params.get('zone') ?? 0)];
-const q = QUALITY[(params.get('q') as 'low' | 'medium' | 'high') ?? detectQuality()];
-const scene = new Scene();
-const renderer = new Renderer(document.getElementById('scene') as HTMLCanvasElement, scene, q);
-const atmo = new Atmosphere(scene, zone, q);
-const seabed = new Seabed(scene, zone, atmo, q);
-const fauna = new Fauna(scene, atmo, q);
-fauna.setZone(zone);
-const player = new Player();
-scene.add(player.model.root);
-const input = new Input(document.getElementById('scene')!);
-const bounds = new Vector2();
-renderer.camera.lookAt(0, -12, 0);
-window.addEventListener('resize', () => renderer.resize());
-let t = 0;
-new Loop((dt) => {
-  t += dt;
-  atmo.update(dt, 90, 10);
-  seabed.update(dt, 90);
-  fauna.update(dt, t, 90);
-  input.update();
-  renderer.playfieldHalfSize(bounds);
-  player.update(dt, input, bounds, zone.current, seabed.floorAt(player.pos.x));
-  player.animate(dt, atmo.darkness);
-  renderer.render(dt);
-}).start();
+function webglAvailable() {
+  try {
+    const c = document.createElement('canvas');
+    return !!c.getContext('webgl2');
+  } catch {
+    return false;
+  }
+}
+
+const ui = document.getElementById('ui')!;
+if (!webglAvailable()) {
+  ui.innerHTML = `<div style="position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;pointer-events:auto">
+    <div><h1 style="font-family:var(--display)">WebGL 2 is not available</h1>
+    <p style="color:var(--muted)">Ejected Cube needs a browser with WebGL 2 and hardware acceleration turned on.</p></div></div>`;
+} else {
+  const game = new Game(document.getElementById('scene') as HTMLCanvasElement);
+  void game.boot();
+  if (import.meta.env.DEV) (window as unknown as { game: Game }).game = game;
+}

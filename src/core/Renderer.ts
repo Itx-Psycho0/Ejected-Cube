@@ -136,6 +136,11 @@ export class Renderer {
     this.composer.render(dt);
   }
 
+  /** Synchronously compile materials that were just added (e.g. a boss). */
+  compile() {
+    this.gl.compile(this.scene, this.camera);
+  }
+
   /** Compile all shaders up front so the first explosion doesn't hitch. */
   async warmup() {
     await this.gl.compileAsync(this.scene, this.camera);
