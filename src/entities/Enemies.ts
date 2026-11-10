@@ -41,12 +41,12 @@ interface Spec {
 }
 
 export const ENEMY_SPECS: Record<EnemyKind, Spec> = {
-  urchin: { hp: 3, radius: 11, contact: 18, score: 120, pool: 16, color: 0xa070ff },
-  jelly: { hp: 2, radius: 10, contact: 12, score: 100, pool: 16, color: 0x7ffcff },
-  mine: { hp: 2, radius: 10, contact: 30, score: 150, pool: 10, color: 0xff6030 },
-  lanternfish: { hp: 1, radius: 7, contact: 9, score: 80, pool: 30, color: 0x7ffcff },
-  puffer: { hp: 3, radius: 9, contact: 14, score: 140, pool: 12, color: 0xffd166 },
-  debris: { hp: 5, radius: 14, contact: 22, score: 160, pool: 12, color: 0xffaa44 },
+  urchin: { hp: 3, radius: 11, contact: 14, score: 120, pool: 16, color: 0xa070ff },
+  jelly: { hp: 2, radius: 10, contact: 10, score: 100, pool: 16, color: 0x7ffcff },
+  mine: { hp: 2, radius: 10, contact: 22, score: 150, pool: 10, color: 0xff6030 },
+  lanternfish: { hp: 1, radius: 7, contact: 8, score: 80, pool: 30, color: 0x7ffcff },
+  puffer: { hp: 3, radius: 9, contact: 12, score: 140, pool: 12, color: 0xffd166 },
+  debris: { hp: 5, radius: 14, contact: 16, score: 160, pool: 12, color: 0xffaa44 },
 };
 
 export interface EnemyContext {
@@ -204,7 +204,7 @@ export class Enemies {
     this.v3.set(e.pos.x, e.pos.y, 0);
     const big = e.kind === 'mine' || e.kind === 'debris';
     this.particles.explosion(this.v3, spec.color, big ? 1.3 : 0.7);
-    if (e.kind === 'mine') ctx.onExplosion(e.pos.x, e.pos.y, 60, 30);
+    if (e.kind === 'mine') ctx.onExplosion(e.pos.x, e.pos.y, 60, 22);
     if (e.kind === 'urchin') this.projectiles.radial('spike', e.pos.x, e.pos.y, 8, 90, e.phase, { radius: 1.6, damage: 0, life: 0.5 });
     ctx.onKill(e, byPlayer);
   }

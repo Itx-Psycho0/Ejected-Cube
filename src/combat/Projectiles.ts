@@ -19,10 +19,24 @@ export interface Shot {
   active: boolean;
   kind: ShotKind;
   pos: Vector2;
+  /** Position at the start of the frame, for swept collision tests. */
+  prev: Vector2;
   vel: Vector2;
   damage: number;
   life: number;
   index: number;
+}
+
+/** Squared distance from point (px, py) to segment a-b. */
+export function segDist2(ax: number, ay: number, bx: number, by: number, px: number, py: number) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  let t = l2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = ax + dx * t - px;
+  const cy = ay + dy * t - py;
+  return cx * cx + cy * cy;
 }
 
 export interface Bullet {
@@ -82,6 +96,7 @@ export class Projectiles {
       active: false,
       kind: 'bolt' as ShotKind,
       pos: new Vector2(),
+      prev: new Vector2(),
       vel: new Vector2(),
       damage: 1,
       life: 0,
@@ -106,6 +121,7 @@ export class Projectiles {
     if (!s) return null;
     s.kind = kind;
     s.pos.set(x, y);
+    s.prev.set(x, y);
     s.vel.set(vx, vy);
     s.damage = damage;
     s.life = kind === 'torpedo' ? 3 : 1.6;
@@ -156,6 +172,7 @@ export class Projectiles {
           s.vel.lerp(desired, 1 - Math.exp(-4 * dt));
         }
       }
+      s.prev.copy(s.pos);
       s.pos.addScaledVector(s.vel, dt);
       if (s.life <= 0 || s.pos.x > bounds.x + 40 || s.pos.x < -bounds.x - 40 || Math.abs(s.pos.y) > bounds.y + 40) {
         s.active = false;

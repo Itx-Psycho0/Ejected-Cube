@@ -16,7 +16,7 @@ import { Enemies, ENEMY_SPECS, type Enemy, type EnemyContext } from '../entities
 import { Pickups, POWERUP_INFO, type Pickup } from '../entities/Pickups';
 import { createBoss, type Boss, type BossContext } from '../entities/bosses';
 import { Particles } from '../fx/Particles';
-import { Projectiles, type Shot } from '../combat/Projectiles';
+import { Projectiles, segDist2, type Shot } from '../combat/Projectiles';
 import { SonarPing } from '../fx/SonarPing';
 import { CameraRig } from '../fx/CameraRig';
 import { Flash } from '../fx/Flash';
@@ -543,7 +543,10 @@ export class Game {
     const floor = this.seabed.floorAt(this.player.pos.x);
     this.player.update(dt, this.input, this.bounds, zone.current, floor);
     this.player.breathe(dt, inBoss ? 0.6 : 1);
-    if (this.player.pos.y - this.player.radius < floor + 4 && this.player.alive) this.hurt(6, 'crushed');
+    // Scraping the seabed at speed throws up silt.
+    if (this.player.pos.y - this.player.radius < floor + 4 && Math.random() < dt * 30) {
+      this.particles.burst(this.v3.set(this.player.pos.x, floor + 2, 6), { count: 2, color: 0x6a6258, speed: 20, size: 14, life: 1.4, smoke: true });
+    }
     this.handleAbilities(dt);
 
     // Ambient bubbles from the thrusters.
@@ -670,7 +673,7 @@ export class Game {
       for (const e of this.enemies.list) {
         if (!e.active) continue;
         const r = e.radius + 3;
-        if ((e.pos.x - s.pos.x) ** 2 + (e.pos.y - s.pos.y) ** 2 < r * r) {
+        if (segDist2(s.prev.x, s.prev.y, s.pos.x, s.pos.y, e.pos.x, e.pos.y) < r * r) {
           this.enemies.hit(e, s.damage, this.enemyCtx, true);
           this.particles.burst(this.v3.set(s.pos.x, s.pos.y, 0), { count: 6, color: 0x7ffff0, speed: 90, size: 4, life: 0.3 });
           audio.enemyHit();
@@ -680,7 +683,7 @@ export class Game {
       }
       if (!consumed && this.boss && this.boss.state === 'fight') {
         for (const h of this.boss.hitboxes) {
-          if ((h.x - s.pos.x) ** 2 + (h.y - s.pos.y) ** 2 < (h.r + 2) ** 2) {
+          if (segDist2(s.prev.x, s.prev.y, s.pos.x, s.pos.y, h.x, h.y) < (h.r + 2) ** 2) {
             this.damageBoss(s.damage * h.mult, s.pos.x, s.pos.y);
             consumed = true;
             break;
