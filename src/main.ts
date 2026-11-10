@@ -10,6 +10,9 @@ import { ZONES } from './game/zones';
 import { Atmosphere } from './world/Atmosphere';
 import { Seabed } from './world/Seabed';
 import { Fauna } from './world/Fauna';
+import { Player } from './entities/Player';
+import { Input } from './core/Input';
+import { Vector2 } from 'three';
 
 // Environment preview (temporary until the game wiring lands).
 const params = new URLSearchParams(location.search);
@@ -21,6 +24,10 @@ const atmo = new Atmosphere(scene, zone, q);
 const seabed = new Seabed(scene, zone, atmo, q);
 const fauna = new Fauna(scene, atmo, q);
 fauna.setZone(zone);
+const player = new Player();
+scene.add(player.model.root);
+const input = new Input(document.getElementById('scene')!);
+const bounds = new Vector2();
 renderer.camera.lookAt(0, -12, 0);
 window.addEventListener('resize', () => renderer.resize());
 let t = 0;
@@ -29,5 +36,9 @@ new Loop((dt) => {
   atmo.update(dt, 90, 10);
   seabed.update(dt, 90);
   fauna.update(dt, t, 90);
+  input.update();
+  renderer.playfieldHalfSize(bounds);
+  player.update(dt, input, bounds, zone.current, seabed.floorAt(player.pos.x));
+  player.animate(dt, atmo.darkness);
   renderer.render(dt);
 }).start();
