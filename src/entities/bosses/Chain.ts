@@ -21,8 +21,23 @@ import { glowMaterial } from './materials';
 const SEGMENTS = 20;
 
 /** Zone 3 boss: a siphonophore, a colony of glowing zooids strung on a stem. */
+export interface ChainSkin {
+  name: string;
+  glow: number;
+  shell: number;
+  strand: number;
+  hue: number;
+}
+
+export const CHAIN_SKINS: Record<'water' | 'sky' | 'space', ChainSkin> = {
+  water: { name: 'The Chain', glow: 0xb48cff, shell: 0x9a7aff, strand: 0xff5ac8, hue: 0.72 },
+  sky: { name: 'Kite Dragon', glow: 0xff5a3a, shell: 0xffc35a, strand: 0xffe08a, hue: 0.04 },
+  space: { name: 'Star Wyrm', glow: 0x6ff6ff, shell: 0x8fd1e8, strand: 0x9fe8ff, hue: 0.52 },
+};
+
 export class Chain extends Boss {
-  readonly name = 'The Chain';
+  readonly name: string;
+  private hue: number;
   private trail = new SegmentTrail(SEGMENTS, 15);
   private head = new Group();
   private cores: InstancedMesh;
@@ -34,9 +49,11 @@ export class Chain extends Boss {
   private diveTarget = new Vector2();
   private pathT = 0;
 
-  constructor(difficulty: number) {
-    super(170, difficulty);
-    this.coreMat = glowMaterial(0xb48cff, 3);
+  constructor(difficulty: number, skin: ChainSkin = CHAIN_SKINS.water) {
+    super(150, difficulty);
+    this.name = skin.name;
+    this.hue = skin.hue;
+    this.coreMat = glowMaterial(skin.glow, 3);
     this.registerGlow(this.coreMat);
 
     // Head: a float plus a crown of swimming bells.
@@ -48,7 +65,7 @@ export class Chain extends Boss {
     const bellGeo = new LatheGeometry(bellProfile, 20);
     const bellMat = new MeshPhysicalMaterial({
       color: 0xd8c8ff,
-      emissive: 0x8a5aff,
+      emissive: skin.glow,
       emissiveIntensity: 0.8,
       transparent: true,
       opacity: 0.5,
@@ -77,12 +94,12 @@ export class Chain extends Boss {
     this.cores = new InstancedMesh(new SphereGeometry(3.4, 12, 8), this.coreMat, SEGMENTS);
     this.bracts = new InstancedMesh(
       new SphereGeometry(7, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.6),
-      new MeshBasicMaterial({ color: 0x9a7aff, transparent: true, opacity: 0.18, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }),
+      new MeshBasicMaterial({ color: skin.shell, transparent: true, opacity: 0.18, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }),
       SEGMENTS,
     );
     const strandGeo = new CylinderGeometry(0.3, 0.05, 26, 4, 1);
     strandGeo.translate(0, -13, 0);
-    this.strands = new InstancedMesh(strandGeo, new MeshStandardMaterial({ color: 0xffb4e6, emissive: 0xff5ac8, emissiveIntensity: 1.4, transparent: true, opacity: 0.7 }), SEGMENTS);
+    this.strands = new InstancedMesh(strandGeo, new MeshStandardMaterial({ color: skin.strand, emissive: skin.strand, emissiveIntensity: 1.4, transparent: true, opacity: 0.7 }), SEGMENTS);
     for (const m of [this.cores, this.bracts, this.strands]) {
       m.instanceMatrix.setUsage(DynamicDrawUsage);
       m.frustumCulled = false;
@@ -168,7 +185,7 @@ export class Chain extends Boss {
       d.rotation.z = Math.sin(this.t * 1.7 + i * 0.6) * 0.35;
       d.updateMatrix();
       this.strands.setMatrixAt(i, d.matrix);
-      this.cores.setColorAt(i, c.setHSL(0.72 + Math.sin(this.t + i * 0.3) * 0.08, 1, 0.6 + this.flash * 0.4));
+      this.cores.setColorAt(i, c.setHSL(this.hue + Math.sin(this.t + i * 0.3) * 0.05, 1, 0.6 + this.flash * 0.4));
     }
     for (const m of [this.cores, this.bracts, this.strands]) m.instanceMatrix.needsUpdate = true;
     if (this.cores.instanceColor) this.cores.instanceColor.needsUpdate = true;

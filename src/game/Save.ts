@@ -64,6 +64,8 @@ export interface SaveData {
   owned: string[];
   loadout: Loadout;
   worldsSeen: ThemeId[];
+  /** Bumped when new worlds are added, so they join existing rotation pools. */
+  worldsVersion: number;
   storySeen: boolean;
   tutorialDone: boolean;
   coachDone: boolean;
@@ -106,6 +108,7 @@ function fresh(): SaveData {
     owned: [],
     loadout: { ...DEFAULT_LOADOUT },
     worldsSeen: [],
+    worldsVersion: 2,
     storySeen: false,
     tutorialDone: false,
     coachDone: false,
@@ -141,6 +144,12 @@ export class Save {
         missions: p.missions?.length === 3 ? p.missions : f.missions,
       };
       if (!this.data.settings.themePool?.length) this.data.settings.themePool = [...THEME_IDS];
+      if ((p.worldsVersion ?? 1) < 2) {
+        if (!this.data.settings.themePool.includes('orbit')) this.data.settings.themePool.push('orbit');
+        this.data.worldsVersion = 2;
+        // The controls changed in this version, so offer the tutorial again.
+        this.data.tutorialDone = false;
+      }
     } else {
       this.data = f;
       // Carry pearls and upgrades over from the first version of the game.

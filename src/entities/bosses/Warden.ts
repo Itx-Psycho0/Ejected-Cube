@@ -12,7 +12,7 @@ export class Warden extends Boss {
   private spawnAdds = false;
 
   constructor(difficulty: number) {
-    super(110, difficulty);
+    super(95, difficulty);
     this.shellMat = new MeshStandardMaterial({
       color: 0x6a2a1e,
       roughness: 0.55,

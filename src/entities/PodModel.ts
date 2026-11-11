@@ -26,6 +26,7 @@ import { getTextures } from '../world/textures';
 import { HullPainter } from './hullPaint';
 import { ACCENT_COLORS, HULL_COLORS, LIGHTS, hexOf, type Loadout } from '../game/cosmetics';
 import { limb, merge } from '../world/geometry';
+import type { Family } from '../themes/themes';
 
 /**
  * EC-07 escape capsule, built from primitives with PBR materials:
@@ -46,8 +47,11 @@ export class PodModel {
   private beaconMat: MeshStandardMaterial;
   private shieldMat: ShaderMaterial;
   readonly shield: Mesh;
-  readonly exhaustPorts: Object3D[] = [];
-  readonly muzzle = new Object3D();
+  exhaustPorts: Object3D[] = [];
+  muzzle = new Object3D();
+  private variants = {} as Record<Family, { group: Group; ports: Object3D[]; muzzle: Object3D }>;
+  private propeller = new Group();
+  kind: Family = 'water';
   private t = 0;
   private painter = new HullPainter();
   private hull!: Mesh;
@@ -318,10 +322,157 @@ export class PodModel {
     this.shield.visible = false;
     this.root.add(this.shield);
 
+    this.buildVariants(steel, darkSteel);
     this.root.scale.setScalar(1.35);
     this.root.traverse((o) => {
       if ((o as Mesh).isMesh && o !== this.shield) o.castShadow = true;
     });
+  }
+
+  /**
+   * The capsule built above becomes the 'water' craft. Sky worlds get a
+   * propeller fighter and space worlds a starship; all three share the
+   * painted hull material, so hangar colours and patterns carry over.
+   */
+  private buildVariants(steel: MeshStandardMaterial, dark: MeshStandardMaterial) {
+    const sub = new Group();
+    for (const c of [...this.body.children]) sub.add(c);
+    this.body.add(sub);
+    this.variants.water = { group: sub, ports: this.exhaustPorts, muzzle: this.muzzle };
+
+    const glassMat = new MeshPhysicalMaterial({ color: 0x9fd8ff, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.45, depthWrite: false });
+    const port = (g: Group, x: number, y: number, z: number) => {
+      const o = new Object3D();
+      o.position.set(x, y, z);
+      g.add(o);
+      return o;
+    };
+    const pilot = () => {
+      const g = new Group();
+      const head = new Mesh(new SphereGeometry(1.5, 14, 10), new MeshStandardMaterial({ color: 0x7a4a2a, roughness: 0.6 }));
+      const goggles = new Mesh(new BoxGeometry(1, 0.9, 2.4), new MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.2 }));
+      goggles.position.set(1.1, 0.3, 0);
+      const scarf = new Mesh(new BoxGeometry(3.4, 0.7, 1), new MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.9 }));
+      scarf.position.set(-2, -1.2, 0);
+      g.add(head, goggles, scarf);
+      return g;
+    };
+
+    // ---------- propeller fighter ----------
+    const plane = new Group();
+    const fusePts: Vector2[] = [];
+    for (let i = 0; i <= 14; i++) {
+      const t = i / 14;
+      fusePts.push(new Vector2(0.4 + Math.sin(Math.min(1, t * 1.5) * Math.PI * 0.5) * 4.6 * (1 - Math.max(0, t - 0.75) * 1.2), 11 - t * 25));
+    }
+    const fuse = new Mesh(new LatheGeometry(fusePts, 18), this.hullMat);
+    fuse.rotation.z = -Math.PI / 2;
+    const cowl = new Mesh(new CylinderGeometry(4.5, 4.7, 3.4, 18), dark);
+    cowl.rotation.z = Math.PI / 2;
+    cowl.position.x = 10.2;
+    const spinner = new Mesh(new ConeGeometry(1.8, 3.6, 14), steel);
+    spinner.rotation.z = -Math.PI / 2;
+    this.propeller.add(spinner);
+    for (const a of [0, Math.PI / 2]) {
+      const blade = new Mesh(new BoxGeometry(0.5, 17, 1.7), dark);
+      blade.rotation.x = a;
+      this.propeller.add(blade);
+    }
+    this.propeller.position.x = 13.4;
+    const wingGeo = new BoxGeometry(7.5, 0.8, 38);
+    const wing = new Mesh(wingGeo, this.hullMat);
+    wing.position.set(1.5, -1.6, 0);
+    const tips = new Mesh(new BoxGeometry(7.6, 0.9, 3), dark);
+    const tipL = tips.clone();
+    tips.position.set(1.5, -1.6, 18);
+    tipL.position.set(1.5, -1.6, -18);
+    const stab = new Mesh(new BoxGeometry(4.6, 0.6, 14), this.hullMat);
+    stab.position.set(-12.4, 0.6, 0);
+    const fin = new Mesh(new BoxGeometry(5, 6.6, 0.7), this.hullMat);
+    fin.position.set(-12.2, 3.6, 0);
+    fin.rotation.z = -0.25;
+    const canopy = new Mesh(new SphereGeometry(3.3, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), glassMat);
+    canopy.scale.set(1.5, 1, 0.85);
+    canopy.position.set(0.5, 3.4, 0);
+    const pl = pilot();
+    pl.position.set(0.6, 4.4, 0);
+    const gear: Mesh[] = [];
+    for (const z of [-5, 5]) {
+      const strut = new Mesh(new CylinderGeometry(0.3, 0.3, 4, 6), steel);
+      strut.position.set(3.5, -4, z);
+      const wheel = new Mesh(new CylinderGeometry(1.6, 1.6, 1, 14), dark);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.set(3.5, -6, z);
+      gear.push(strut, wheel);
+    }
+    const guns: Mesh[] = [];
+    for (const z of [-8, 8]) {
+      const gun = new Mesh(new CylinderGeometry(0.35, 0.35, 5, 8), dark);
+      gun.rotation.z = Math.PI / 2;
+      gun.position.set(6, -1.4, z);
+      guns.push(gun);
+    }
+    plane.add(fuse, cowl, this.propeller, wing, tips, tipL, stab, fin, canopy, pl, ...gear, ...guns);
+    this.variants.sky = { group: plane, ports: [port(plane, -15, 0.5, 0), port(plane, -15, 0.5, 0)], muzzle: port(plane, 12, -2.4, 0) };
+
+    // ---------- starship ----------
+    const ship = new Group();
+    const hullPts: Vector2[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      hullPts.push(new Vector2(0.2 + Math.pow(t, 0.7) * 4.6, 15 - t * 26));
+    }
+    const hull = new Mesh(new LatheGeometry(hullPts, 16), this.hullMat);
+    hull.rotation.z = -Math.PI / 2;
+    hull.scale.set(1, 1, 1.25);
+    const wingShape = new ConeGeometry(11, 20, 3, 1);
+    wingShape.rotateZ(-Math.PI / 2);
+    wingShape.scale(1, 0.09, 1);
+    for (const z of [-1, 1]) {
+      const w = new Mesh(wingShape, this.hullMat);
+      w.position.set(-6, -0.6, z * 9);
+      w.rotation.y = z * 0.5;
+      w.rotation.x = z * -0.12;
+      const tipFin = new Mesh(new BoxGeometry(7, 5, 0.6), dark);
+      tipFin.position.set(-11, 1.2, z * 15.5);
+      const engine = new Mesh(new CylinderGeometry(2, 2.5, 8, 14), dark);
+      engine.rotation.z = Math.PI / 2;
+      engine.position.set(-10.5, 0, z * 5);
+      const glow = new Mesh(new CylinderGeometry(1.7, 1.7, 0.4, 14), this.thrusterMat);
+      glow.rotation.z = Math.PI / 2;
+      glow.position.set(-14.6, 0, z * 5);
+      ship.add(w, tipFin, engine, glow);
+    }
+    const dome = new Mesh(new SphereGeometry(3, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), glassMat);
+    dome.scale.set(2, 0.9, 0.9);
+    dome.position.set(1.5, 2.6, 0);
+    const spine = new Mesh(new BoxGeometry(12, 1, 1.4), dark);
+    spine.position.set(-6, 3.4, 0);
+    const cannon = new Mesh(new CylinderGeometry(0.5, 0.7, 8, 10), steel);
+    cannon.rotation.z = Math.PI / 2;
+    cannon.position.set(8, -3, 0);
+    hull.scale.set(1, 1.5, 1.25);
+    const tail = new Mesh(new BoxGeometry(9, 9, 0.8), this.hullMat);
+    tail.position.set(-9, 6, 0);
+    tail.rotation.z = -0.5;
+    const belly = new Mesh(new BoxGeometry(14, 2.4, 5), dark);
+    belly.position.set(-3, -5.4, 0);
+    const stripe = new Mesh(new BoxGeometry(16, 0.8, 9.6), this.thrusterMat);
+    stripe.position.set(-4, 0.4, 0);
+    ship.add(hull, dome, spine, cannon, tail, belly, stripe);
+    this.variants.space = { group: ship, ports: [port(ship, -17, 0, 5), port(ship, -17, 0, -5)], muzzle: port(ship, 13, -3, 0) };
+
+    plane.visible = ship.visible = false;
+    this.body.add(plane, ship);
+  }
+
+  /** Swap the craft for the current world's family. */
+  setKind(kind: Family) {
+    this.kind = kind;
+    for (const k of Object.keys(this.variants) as Family[]) this.variants[k].group.visible = k === kind;
+    this.exhaustPorts = this.variants[kind].ports;
+    this.muzzle = this.variants[kind].muzzle;
+    this.shield.scale.setScalar(kind === 'water' ? 1 : 1.25);
   }
 
   /** Apply hangar choices: paint, shape, light colour and roll cage. */
@@ -343,6 +494,7 @@ export class PodModel {
   /** Called every frame with visual state from the Player. */
   animate(dt: number, opts: { thrust: number; hitFlash: number; beam: number; shieldHit: number; shieldOn: boolean; dashing: boolean }) {
     this.t += dt;
+    this.propeller.rotation.x += dt * (26 + opts.thrust * 30);
     this.thrusterMat.emissiveIntensity = 2 + opts.thrust * 4 + (opts.dashing ? 8 : 0) + Math.sin(this.t * 40) * 0.4;
     this.beaconMat.emissiveIntensity = Math.sin(this.t * 4) > 0.6 ? 7 : 0.2;
     this.hullMat.emissiveIntensity = opts.hitFlash * 1.6;

@@ -5,7 +5,9 @@ export type EnemyKind = 'urchin' | 'jelly' | 'mine' | 'lanternfish' | 'puffer' |
 import type { Particles } from '../fx/Particles';
 import type { Projectiles } from '../combat/Projectiles';
 import type { Player } from './Player';
-import { makeDebris, makeJelly, makeLanternfish, makeMine, makePuffer, makeUrchin, type EnemyVisual } from './EnemyModels';
+import { FamilyVisual, makeDebris, makeJelly, makeLanternfish, makeMine, makePuffer, makeUrchin, type EnemyVisual } from './EnemyModels';
+import { makeSky, makeSpace } from './EnemyFamilies';
+import type { Family } from '../themes/themes';
 import { Random } from '../core/Random';
 import { clamp, damp } from '../core/math';
 import type { IUniform } from 'three';
@@ -13,7 +15,7 @@ import type { IUniform } from 'three';
 export interface Enemy {
   active: boolean;
   kind: EnemyKind;
-  visual: EnemyVisual;
+  visual: FamilyVisual;
   pos: Vector2;
   vel: Vector2;
   hp: number;
@@ -43,12 +45,12 @@ interface Spec {
 }
 
 export const ENEMY_SPECS: Record<EnemyKind, Spec> = {
-  urchin: { hp: 3, radius: 11, contact: 14, score: 120, pool: 16, color: 0xa070ff },
-  jelly: { hp: 2, radius: 10, contact: 10, score: 100, pool: 16, color: 0x7ffcff },
-  mine: { hp: 2, radius: 10, contact: 22, score: 150, pool: 10, color: 0xff6030 },
-  lanternfish: { hp: 1, radius: 7, contact: 8, score: 80, pool: 30, color: 0x7ffcff },
-  puffer: { hp: 3, radius: 9, contact: 12, score: 140, pool: 12, color: 0xffd166 },
-  debris: { hp: 5, radius: 14, contact: 16, score: 160, pool: 12, color: 0xffaa44 },
+  urchin: { hp: 2, radius: 10, contact: 12, score: 120, pool: 16, color: 0xa070ff },
+  jelly: { hp: 2, radius: 10, contact: 9, score: 100, pool: 16, color: 0x7ffcff },
+  mine: { hp: 2, radius: 10, contact: 16, score: 150, pool: 10, color: 0xff6030 },
+  lanternfish: { hp: 1, radius: 7, contact: 7, score: 80, pool: 30, color: 0x7ffcff },
+  puffer: { hp: 2, radius: 9, contact: 10, score: 140, pool: 12, color: 0xffd166 },
+  debris: { hp: 3, radius: 13, contact: 13, score: 160, pool: 12, color: 0xffaa44 },
 };
 
 export interface EnemyContext {
@@ -63,7 +65,6 @@ export interface EnemyContext {
   onKill: (e: Enemy, byPlayer: boolean) => void;
 }
 
-const REVEAL_COLOR = new Color(0xb48cff);
 
 /**
  * All regular enemies: pooled meshes per species, behaviour state machines,
@@ -94,7 +95,7 @@ export class Enemies {
     };
     for (const kind of Object.keys(ENEMY_SPECS) as EnemyKind[]) {
       for (let i = 0; i < ENEMY_SPECS[kind].pool; i++) {
-        const visual = factories[kind]();
+        const visual = new FamilyVisual({ water: factories[kind](), sky: makeSky(kind, i), space: makeSpace(kind) });
         visual.root.visible = false;
         scene.add(visual.root);
         this.list.push({
@@ -120,6 +121,11 @@ export class Enemies {
         });
       }
     }
+  }
+
+  /** Show the bodies that belong to the current world. */
+  setFamily(f: Family) {
+    for (const e of this.list) e.visual.use(f);
   }
 
   seed(seed: number) {
@@ -208,7 +214,7 @@ export class Enemies {
     this.v3.set(e.pos.x, e.pos.y, 0);
     const big = e.kind === 'mine' || e.kind === 'debris';
     this.particles.explosion(this.v3, spec.color, big ? 1.3 : 0.7);
-    if (e.kind === 'mine') ctx.onExplosion(e.pos.x, e.pos.y, 60, 22);
+    if (e.kind === 'mine') ctx.onExplosion(e.pos.x, e.pos.y, 55, 16);
     if (e.kind === 'urchin') this.projectiles.radial('spike', e.pos.x, e.pos.y, 8, 90, e.phase, { radius: 1.6, damage: 0, life: 0.5 });
     ctx.onKill(e, byPlayer);
   }
@@ -265,9 +271,9 @@ export class Enemies {
           const chain = e.visual.parts.chain;
           if (chain) chain.scale.y = Math.max(1, e.pos.y - 7 - ctx.floorAt(e.pos.x) + 10);
           const dist = Math.hypot(p.pos.x - e.pos.x, p.pos.y - e.pos.y);
-          if (e.state === 0 && dist < 70 && p.alive) {
+          if (e.state === 0 && dist < 60 && p.alive) {
             e.state = 1; // armed
-            e.timer = 0.85;
+            e.timer = 1.1;
           }
           if (e.state === 1) {
             e.timer -= dt;
@@ -285,7 +291,7 @@ export class Enemies {
           // Swim in, then home on the pod with a limited turn rate.
           const desired = this.tmp.set(p.pos.x - e.pos.x, p.pos.y - e.pos.y);
           const dist = desired.length();
-          const speed = 120 + ctx.difficulty * 15;
+          const speed = 95 + ctx.difficulty * 20;
           if (e.state === 0) {
             e.vel.set(-scroll - 70, Math.sin(e.age * 3 + e.phase) * 20);
             if (dist < 260 && e.pos.x > p.pos.x) e.state = 1;
@@ -308,7 +314,7 @@ export class Enemies {
             e.scale = Math.min(2.3, e.scale + dt * 2.2);
             if (e.scale >= 2.3) {
               e.state = 2;
-              this.projectiles.radial('spike', e.pos.x, e.pos.y, 12 + ctx.difficulty * 2, 150, e.phase, { radius: 2.2, damage: 10 });
+              this.projectiles.radial('spike', e.pos.x, e.pos.y, 8 + Math.round(ctx.difficulty * 2), 120 * ctx.difficulty, e.phase, { radius: 2.2, damage: 8 });
               e.hp = 0;
               this.kill(e, ctx, false);
               continue;
@@ -322,7 +328,7 @@ export class Enemies {
           break;
         }
         case 'debris':
-          e.vel.set(-scroll * 0.6 - 30, -70 - ctx.difficulty * 10);
+          e.vel.set(-scroll * 0.6 - 30, -55 - ctx.difficulty * 10);
           r.rotation.z += dt * (0.6 + (e.phase % 1));
           r.rotation.x += dt * 0.4;
           if (Math.random() < dt * 20) this.particles.bubbles(this.v3.set(e.pos.x, e.pos.y, 0), 1, 8, 1.6);
@@ -331,16 +337,14 @@ export class Enemies {
 
       e.pos.addScaledVector(e.vel, dt);
       r.position.set(e.pos.x, e.pos.y, 0);
-      if (e.kind !== 'puffer') r.scale.setScalar(1 + e.flash * 0.15);
+      // Ease in from nothing so spawns never pop.
+      const grow = Math.min(1, e.age * 4);
+      if (e.kind !== 'puffer') r.scale.setScalar((1 + e.flash * 0.15) * grow);
 
-      // Visibility: in dark zones only bioluminescence, the floodlight and a sonar ping give enemies away.
       const g = e.visual;
       for (let i = 0; i < g.glowMats.length; i++) {
         if (e.kind === 'mine') continue;
-        const m = g.glowMats[i];
-        const base = g.baseEmissive[i] * (0.4 + ctx.darkness * 0.6);
-        m.emissiveIntensity = base + e.flash * 3 + e.revealed * 0.5;
-        if (i === 0 && e.revealed > 0 && e.kind !== 'jelly') m.emissive.copy(REVEAL_COLOR);
+        g.glowMats[i].emissiveIntensity = g.baseEmissive[i] + e.flash * 2.5;
       }
 
       // Contact with the pod.

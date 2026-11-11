@@ -13,17 +13,16 @@ import { Fauna } from '../world/Fauna';
 import { Clouds } from '../world/Clouds';
 import { Player, type PowerUp } from '../entities/Player';
 import { Enemies, ENEMY_SPECS, type Enemy, type EnemyContext, type EnemyKind } from '../entities/Enemies';
-import { Pickups, POWERUP_INFO, type Pickup } from '../entities/Pickups';
+import { Pickups, POWERUP_INFO, SPARK_NAME, type Pickup } from '../entities/Pickups';
 import { createBoss, type Boss, type BossContext } from '../entities/bosses';
 import { Particles } from '../fx/Particles';
-import { Projectiles, segDist2, type Shot } from '../combat/Projectiles';
-import { SonarPing } from '../fx/SonarPing';
+import { Projectiles, segDist2 } from '../combat/Projectiles';
 import { CameraRig } from '../fx/CameraRig';
 import { Flash } from '../fx/Flash';
 import { Telegraph } from '../fx/Telegraph';
 import { Save, type Settings } from './Save';
 import { ACHIEVEMENTS, UPGRADES, lumenGain, statsFor, type UpgradeId } from './meta';
-import { DIFFICULTY, STORY_END_LEVEL, levelDef, type LevelDef } from './levels';
+import { BOSS_TABLE, DIFFICULTY, STORY_END_LEVEL, levelDef, type BossInfo, type LevelDef } from './levels';
 import { describe, nextMission, type MissionKind } from './missions';
 import { costOf, type Loadout } from './cosmetics';
 import { THEMES, THEME_IDS, randomTheme, type ThemeDef, type ThemeId } from '../themes/themes';
@@ -51,9 +50,9 @@ interface Run {
   bossHullAtStart: number;
   hurtThisLevel: boolean;
   dashKills: number;
-  dashes: number;
-  reveals: number;
+  dodges: number;
   flares: number;
+  boss: BossInfo | null;
   worlds: Set<ThemeId>;
   endingShown: boolean;
   tutorial: number; // -1 = not a tutorial, else the current step
@@ -62,12 +61,13 @@ interface Run {
 
 const BASE_SPEED = 82;
 const FIRE_SPEED = 640;
-const PING_COOLDOWN = 7;
 
 interface TutorialStep {
   title: string;
   text: (touch: boolean) => string;
   setup: (g: Game) => void;
+  /** Runs every frame: respawn targets if the player missed them. */
+  refill: (g: Game) => void;
   done: (g: Game) => boolean;
 }
 
@@ -96,7 +96,6 @@ export class Game {
   readonly projectiles!: Projectiles;
   readonly enemies!: Enemies;
   readonly pickups!: Pickups;
-  private ping!: SonarPing;
   private rig: CameraRig;
   private flash!: Flash;
   private telegraph!: Telegraph;
@@ -109,8 +108,6 @@ export class Game {
   private scrollSpeed = 0;
   private modeTime = 0;
   private fireCd = 0;
-  private torpedoCd = 0;
-  private pingCd = 0;
   private damageFlash = 0;
   private hitStop = 0;
   private trailAcc = 0;
@@ -129,7 +126,10 @@ export class Game {
     this.input = new Input(canvas);
     this.ui = new UI(this.save);
     this.rig = new CameraRig(this.renderer.camera);
-    this.governor = new QualityGovernor((to) => this.setQuality(to));
+    this.governor = new QualityGovernor(
+      (scale) => this.renderer.setRenderScale(scale),
+      (to) => this.setQuality(to),
+    );
     this.governor.enabled = q === 'auto';
     this.loop = new Loop((dt, raw) => this.frame(dt, raw));
     const s = this.save.data.settings;
@@ -166,7 +166,6 @@ export class Game {
       const pr = Math.min(devicePixelRatio, this.quality.maxPixelRatio);
       this.particles = new Particles(this.scene, this.quality.density, pr);
       (this as { projectiles: Projectiles }).projectiles = new Projectiles(this.scene);
-      this.ping = new SonarPing(this.scene);
       this.flash = new Flash(this.scene);
       this.telegraph = new Telegraph(this.scene);
       this.scene.add(this.player.model.root);
@@ -200,7 +199,7 @@ export class Game {
       darkness: 0,
       floorAt: (x) => this.ground.floorAt(x),
       difficulty: 1,
-      onContact: (e) => this.hurt(e.contactDamage * (this.run?.def.enemyDamage ?? 1), 'hull'),
+      onContact: (e) => this.hurt(e.contactDamage * (this.run?.def.enemyDamage ?? 1)),
       onExplosion: (x, y, r, dmg) => this.explosion(x, y, r, dmg),
       onKill: (e, by) => this.onEnemyKilled(e, by),
     };
@@ -220,7 +219,8 @@ export class Game {
         else audio.explode(0.6);
       },
       spawnEnemy: (k: EnemyKind, x, y) => this.enemies.spawn(k, x, y, this.run.def.enemyHp),
-      darken: (a, s) => this.ui.darken(a * (this.theme.world.darkness > 0.5 ? 1 : 0.6), s),
+      // Dimming is capped so the screen never goes black.
+      darken: (a, s) => this.ui.darken(Math.min(0.3, a), Math.min(2.5, s)),
     };
   }
 
@@ -234,7 +234,11 @@ export class Game {
     this.ground.setTheme(t);
     this.clouds.setTheme(t);
     this.fauna.setTheme(t);
+    this.player.model.setKind(t.family);
+    this.enemies.setFamily(t.family);
+    this.pickups.setFamily(t.family);
     this.styler.setStyle(t.material, this.scene);
+    this.governor.hold();
     this.renderer.setTheme(t.fx, t.world.skyHorizon, instant);
     if (this.save.data.settings.uiFollowsWorld) applyUiTheme(t);
     audio.setMood(t.mood);
@@ -322,10 +326,6 @@ export class Game {
     ui.bindTouch((a, down) => {
       if (a === 'pause') {
         if (down) this.setPaused(!this.paused);
-        return;
-      }
-      if (a === 'fire') {
-        if (down) this.input.autoFire = !this.input.autoFire;
         return;
       }
       if (down) this.input.press(a);
@@ -485,6 +485,7 @@ export class Game {
     this.ui.fade(0);
     audio.setBossMode(false);
     audio.setPaused(false);
+    audio.setEngine('off');
     if (!first) this.ui.show('title');
   }
 
@@ -525,9 +526,9 @@ export class Game {
           bossHullAtStart: 0,
           hurtThisLevel: false,
           dashKills: 0,
-          dashes: 0,
-          reveals: 0,
+          dodges: 0,
           flares: 0,
+          boss: null,
           worlds: new Set(),
           endingShown: level > STORY_END_LEVEL,
           tutorial: tutorial ? 0 : -1,
@@ -540,7 +541,8 @@ export class Game {
         this.player.controllable = false;
         this.rig.offset.set(0, 0, 0);
         this.rig.setZoom(1);
-        this.fireCd = this.torpedoCd = this.pingCd = 0;
+        this.fireCd = 0;
+        audio.setEngine(next.family);
         if (!tutorial) this.save.data.stats.runs++;
         this.save.write();
         this.ui.clearOverlays();
@@ -606,7 +608,7 @@ export class Game {
         this.updateDead(dt);
         break;
     }
-    this.player.animate(dt, this.theme.beam * (0.4 + this.atmo.darkness * 0.6));
+    this.player.animate(dt, this.theme.beam);
     this.flash.update(dt);
     this.telegraph.update(dt);
     this.particles.update(dt, this.ground.worldScroll);
@@ -628,16 +630,16 @@ export class Game {
     const hangar = this.mode === 'hangar';
     this.updateWorld(dt, hangar ? 0 : 22);
     const p = this.player;
-    p.update(dt, this.input, this.bounds, 0, -999);
     const narrow = window.innerWidth < 760;
     const tx = hangar ? (narrow ? 0 : -this.bounds.x * 0.18) : narrow ? 0 : this.bounds.x * 0.08;
     const ty = hangar ? (narrow ? 30 : 4) : narrow ? 25 : 6;
     p.pos.set(damp(p.pos.x, tx, 3, dt), damp(p.pos.y, ty + Math.sin(this.modeTime * 1.1) * 3, 3, dt));
     p.model.root.position.set(p.pos.x, p.pos.y, 0);
+    p.model.body.rotation.set(Math.sin(this.modeTime * 0.7) * 0.06, 0, Math.sin(this.modeTime * 0.9) * 0.05);
     if (hangar) p.model.root.rotation.y += dt * 0.45;
     else p.model.root.rotation.y = damp(p.model.root.rotation.y % (Math.PI * 2), Math.sin(this.modeTime * 0.3) * 0.25, 2, dt);
     this.rig.setZoom(hangar ? 2.3 : 1.15);
-    this.rig.offset.set(hangar ? p.pos.x * 0.6 - (narrow ? 0 : 0) : 0, hangar ? p.pos.y * 0.5 : 0, 0);
+    this.rig.offset.set(hangar ? p.pos.x * 0.6 : 0, hangar ? p.pos.y * 0.5 : 0, 0);
     if (this.mode === 'menu') this.emitTrail(dt * 0.6);
   }
 
@@ -654,15 +656,14 @@ export class Game {
       this.mode = 'play';
       this.modeTime = 0;
       p.controllable = true;
-      p.vel.set(120, 0);
       this.ui.setHudVisible(true, this.input.isTouch);
       audio.zoneEnter();
       this.unlock('ejected');
       if (this.run.tutorial >= 0) this.tutorialStep(0);
       else {
         const t = this.theme;
-        this.ui.card(t.name, t.line, def.boss ? `Level ${def.n} · Boss level` : `Level ${def.n}`);
-        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. Fire is automatic.' : 'Move with the mouse. Hold left click or Space to fire.', 5);
+        this.ui.card(t.name, t.line, def.bossSlot >= 0 ? `Level ${def.n} · Boss level` : `Level ${def.n}`);
+        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. Fire is automatic.' : 'Move the mouse to fly. Hold left click or Space to fire.', 5);
       }
     }
   }
@@ -681,41 +682,34 @@ export class Game {
     const tut = run.tutorial >= 0;
     const diff = DIFFICULTY[this.save.data.settings.difficulty];
     run.time += dt;
-    const speed = inBoss ? BASE_SPEED * 0.3 : BASE_SPEED * def.scroll;
-    this.updateWorld(dt, speed);
+    // The world stops scrolling for boss fights: the arena is the screen.
+    this.updateWorld(dt, inBoss ? 0 : BASE_SPEED * def.scroll);
     run.distance += this.scrollSpeed * dt * 0.12;
 
     if (!inBoss && !transition && !tut) {
       run.levelTime += dt;
       if (run.levelTime >= def.duration) {
-        if (def.boss) this.startBoss();
+        if (def.bossSlot >= 0) this.startBoss();
         else this.levelComplete();
       }
     }
 
     const p = this.player;
-    const floor = this.ground.floorAt(p.pos.x);
-    p.update(dt, this.input, this.bounds, def.current, floor);
-    if (!tut && !transition) p.breathe(dt, diff.drain * (inBoss ? 0.6 : 1));
-    if (tut) p.hull = Math.max(p.hull, 30);
+    p.update(dt, this.input, this.bounds, this.ground.floorAt(p.pos.x));
+    if (!tut && !transition) p.burn(dt, diff.drain * def.drain * (inBoss ? 0.5 : 1));
+    if (tut) p.energy = Math.max(p.energy, 40);
     this.handleAbilities(dt);
     this.emitTrail(dt);
+    audio.setThrust(Math.min(1, p.vel.length() / 220));
 
-    this.enemyCtx.scrollSpeed = this.scrollSpeed;
-    this.enemyCtx.darkness = this.atmo.darkness;
+    this.enemyCtx.scrollSpeed = inBoss ? BASE_SPEED * 0.5 : this.scrollSpeed;
+    this.enemyCtx.darkness = 0;
     this.enemyCtx.difficulty = def.bulletSpeed;
     const progress = clamp(run.levelTime / def.duration, 0, 1);
-    this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.97, diff.spawn);
-    if (!tut)
-      this.pickups.direct(
-        dt,
-        this.bounds,
-        !transition,
-        { ammo: p.ammo / p.stats.maxAmmo, hull: p.hull / p.stats.maxHull, oxygen: p.oxygen / p.stats.maxOxygen },
-        inBoss ? 0 : 0.6,
-      );
+    this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.96, diff.spawn);
+    if (!tut) this.pickups.direct(dt, this.bounds, !transition, !inBoss && !transition, p.energy / p.stats.maxEnergy);
 
-    this.updateCombat(dt);
+    this.updateCombat(dt, inBoss ? BASE_SPEED * 0.5 : this.scrollSpeed);
 
     if (run.combo > 0) {
       run.comboTimer -= dt;
@@ -724,11 +718,11 @@ export class Game {
 
     if (tut) this.updateTutorial();
     else {
-      if (p.oxygen < p.stats.maxOxygen * 0.35) this.hintOnce('o2', 'Your light is fading. Collect glowing sparks.');
+      const low = p.energy < p.stats.maxEnergy * 0.3;
+      if (low) this.hintOnce('energy', `Energy low. Collect ${SPARK_NAME[this.theme.family]} to refill it.`);
       if (p.lumen >= 1) this.hintOnce('flare', this.input.isTouch ? 'Flare ready: tap FLARE to clear the screen.' : 'Flare ready: press Q to clear the screen.');
-      if (run.time > 14 && this.atmo.darkness > 0.5) this.hintOnce('ping', 'It is dark here. Pulse (E or right click) to reveal what hides.', 6);
-      if (p.hull < p.stats.maxHull * 0.35) this.hintOnce('hull', 'Hull damaged. Look for repair kits.');
-      if (p.oxygen < p.stats.maxOxygen * 0.2) audio.alarm();
+      if (run.time > 10) this.hintOnce('dodge', this.input.isTouch ? 'Tap DODGE to roll out of the way.' : 'Press Shift to roll up or down, out of the way.', 5);
+      if (p.energy < p.stats.maxEnergy * 0.18) audio.alarm();
     }
     if (!p.alive) this.onDeath();
     this.pushHud();
@@ -763,41 +757,24 @@ export class Game {
     const p = this.player;
     const input = this.input;
     this.fireCd -= dt;
-    this.torpedoCd -= dt;
-    this.pingCd = Math.max(0, this.pingCd - dt);
     if (!p.alive || !p.controllable) return;
 
     if (input.isHeld('fire') && this.fireCd <= 0) {
-      if (p.ammo > 0) {
-        this.fireCd = 1 / p.stats.fireRate;
-        p.ammo--;
-        p.model.muzzle.getWorldPosition(this.v3);
-        const dmg = p.stats.damage;
-        if (p.powerups.spread > 0) {
-          for (const a of [-0.14, 0, 0.14]) this.projectiles.fire('bolt', this.v3.x, this.v3.y, Math.cos(a) * FIRE_SPEED, Math.sin(a) * FIRE_SPEED, dmg);
-        } else this.projectiles.fire('bolt', this.v3.x, this.v3.y, FIRE_SPEED, 0, dmg);
-        this.particles.burst(this.v3, { count: 3, color: 0xfff2c8, speed: 40, size: 5, life: 0.2, dir: new Vector3(1, 0, 0) });
-        audio.shoot();
-      } else {
-        this.fireCd = 0.3;
-        this.hintOnce('ammo', 'Out of pulse charge. It refills slowly, or grab a violet canister.', 3);
-      }
+      this.fireCd = 1 / p.stats.fireRate;
+      p.model.muzzle.getWorldPosition(this.v3);
+      const dmg = p.stats.damage;
+      if (p.powerups.spread > 0) {
+        for (const a of [-0.14, 0, 0.14]) this.projectiles.fire('bolt', this.v3.x, this.v3.y, Math.cos(a) * FIRE_SPEED, Math.sin(a) * FIRE_SPEED, dmg);
+      } else this.projectiles.fire('bolt', this.v3.x, this.v3.y, FIRE_SPEED, 0, dmg);
+      audio.shoot();
     }
-    if (p.powerups.torpedo > 0 && this.torpedoCd <= 0) {
-      this.torpedoCd = 0.55;
-      this.projectiles.fire('torpedo', p.pos.x + 10, p.pos.y - 8, 220, -40, p.stats.damage * 3);
-      audio.torpedo();
-    }
-    if (input.consume('dash') && p.tryDash()) {
+    if (input.consume('dash') && p.tryDodge()) {
       audio.dash();
-      this.run.dashes++;
-      this.particles.bubbles(this.v3.set(p.pos.x - 10, p.pos.y, 0), 20, 8, 2.6);
-      this.rig.addTrauma(0.15);
-    }
-    if (input.consume('ping') && this.pingCd <= 0) {
-      this.pingCd = PING_COOLDOWN;
-      this.ping.start(p.pos.x, p.pos.y);
-      audio.ping();
+      this.run.dodges++;
+      this.save.data.stats.reveals++;
+      this.missionAdd('reveal');
+      if (this.save.data.stats.reveals >= 60) this.unlock('echo');
+      this.particles.burst(this.v3.set(p.pos.x, p.pos.y, 0), { count: 14, color: 0xffffff, speed: 70, size: 5, life: 0.35, drag: 4 });
     }
     if (input.consume('flare') && p.lumen >= 1) this.bioflare();
   }
@@ -822,25 +799,12 @@ export class Game {
     if (this.boss && this.boss.state === 'fight') this.damageBoss(this.boss.maxHp * 0.08, p.pos.x, p.pos.y);
   }
 
-  private updateCombat(dt: number) {
+  private updateCombat(dt: number, pickupSpeed = this.scrollSpeed) {
     const p = this.player;
-    if (this.ping.active) {
-      this.ping.update(dt);
-      const n = this.enemies.reveal(this.ping.mesh.position.x, this.ping.mesh.position.y, this.ping.radius);
-      if (n) {
-        this.run.reveals += n;
-        this.save.data.stats.reveals += n;
-        this.missionAdd('reveal', n);
-      }
-      this.pickups.reveal(this.ping.mesh.position.x, this.ping.mesh.position.y, this.ping.radius);
-    }
-
-    this.projectiles.update(dt, this.bounds, (s: Shot) => {
-      const target = this.boss?.state === 'fight' ? this.boss.pos : this.enemies.nearest(s.pos.x, s.pos.y)?.pos;
-      return target ?? null;
-    });
+    this.projectiles.update(dt, this.bounds, () => null);
     this.enemies.update(dt, this.enemyCtx);
 
+    // Player shots vs creatures and the boss (swept, so fast bolts never tunnel).
     for (const s of this.projectiles.shots.items) {
       if (!s.active) continue;
       let consumed = false;
@@ -849,7 +813,7 @@ export class Game {
         const r = e.radius + 3;
         if (segDist2(s.prev.x, s.prev.y, s.pos.x, s.pos.y, e.pos.x, e.pos.y) < r * r) {
           this.enemies.hit(e, s.damage, this.enemyCtx, true);
-          this.particles.burst(this.v3.set(s.pos.x, s.pos.y, 0), { count: 6, color: 0xfff2c8, speed: 90, size: 4, life: 0.3 });
+          this.particles.burst(this.v3.set(s.pos.x, s.pos.y, 0), { count: 5, color: 0xfff2c8, speed: 80, size: 4, life: 0.3 });
           audio.enemyHit();
           consumed = true;
           break;
@@ -867,28 +831,27 @@ export class Game {
       if (consumed) s.active = false;
     }
 
+    // Hostile bullets vs the craft. The hit circle is smaller than the model, which feels fair.
     if (p.alive) {
       for (const b of this.projectiles.bullets.items) {
         if (!b.active || b.damage <= 0) continue;
-        const r = b.radius + p.radius * 0.72;
+        const r = b.radius + p.radius * 0.6;
         if ((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2 < r * r) {
           b.active = false;
-          if (b.kind === 'ink') this.ui.darken(0.45, 1.5);
-          this.hurt(b.damage, 'hull');
+          this.hurt(b.damage);
         }
       }
     }
 
     if (this.boss) {
       this.boss.update(dt, this.bossCtx);
-      this.ui.bossBar(this.boss.name, this.run.def.boss?.title ?? '', this.boss.hp / this.boss.maxHp);
+      this.ui.bossBar(this.boss.name, this.run.boss?.title ?? '', this.boss.hp / this.boss.maxHp);
       if (p.alive && this.boss.state === 'fight') {
         for (const hb of this.boss.hitboxes) {
           if (!hb.harmful) continue;
-          const r = hb.r + p.radius * 0.8;
+          const r = hb.r + p.radius * 0.7;
           if ((hb.x - p.pos.x) ** 2 + (hb.y - p.pos.y) ** 2 < r * r) {
-            this.hurt(20, 'hull');
-            p.vel.x -= 300;
+            this.hurt(15);
             break;
           }
         }
@@ -897,9 +860,9 @@ export class Game {
     }
 
     const magnet = Math.max(p.powerups.magnet > 0 ? 170 : 0, p.stats.magnetRadius);
-    this.pickups.update(dt, this.scrollSpeed, this.bounds, p.pos.x, p.pos.y, magnet, p.radius + 9, (it) => this.collect(it));
+    this.pickups.update(dt, pickupSpeed, this.bounds, p.pos.x, p.pos.y, magnet, p.radius + 8, (it) => this.collect(it));
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.5);
-    this.ui.vignette(this.damageFlash, p.oxygen < p.stats.maxOxygen * 0.2 && p.alive);
+    this.ui.vignette(this.damageFlash, p.energy < p.stats.maxEnergy * 0.18 && p.alive);
   }
 
   private damageBoss(amount: number, x: number, y: number) {
@@ -917,23 +880,22 @@ export class Game {
     }
   }
 
-  private hurt(amount: number, cause: 'hull' | 'oxygen' | 'crushed') {
+  private hurt(amount: number) {
     const p = this.player;
     const hadShield = p.shieldCharges > 0;
-    const scaled = amount * DIFFICULTY[this.save.data.settings.difficulty].damageTaken;
-    const dealt = p.damage(scaled, cause);
+    const dealt = p.damage(amount * DIFFICULTY[this.save.data.settings.difficulty].damageTaken);
     if (dealt > 0) {
       this.run.hurtThisLevel = true;
       this.damageFlash = 1;
-      this.rig.addTrauma(0.45);
-      this.hitStop = 0.06;
-      this.renderer.aberration = 1;
+      this.rig.addTrauma(0.35);
+      this.hitStop = 0.05;
+      this.renderer.aberration = 0.7;
       audio.hit();
-      this.particles.burst(this.v3.set(p.pos.x, p.pos.y, 0), { count: 18, color: 0xffa060, speed: 140, size: 5, life: 0.5 });
+      this.particles.burst(this.v3.set(p.pos.x, p.pos.y, 0), { count: 14, color: 0xffa060, speed: 120, size: 5, life: 0.5 });
       this.run.combo = 0;
     } else if (hadShield && p.shieldHit > 0.9) {
       audio.shieldHit();
-      this.rig.addTrauma(0.15);
+      this.rig.addTrauma(0.12);
     }
   }
 
@@ -942,7 +904,7 @@ export class Game {
     this.rig.addTrauma(0.4);
     audio.explode(1.2);
     const p = this.player;
-    if (Math.hypot(p.pos.x - x, p.pos.y - y) < radius + p.radius) this.hurt(damage * (this.run?.def.enemyDamage ?? 1), 'hull');
+    if (Math.hypot(p.pos.x - x, p.pos.y - y) < radius + p.radius) this.hurt(damage * (this.run?.def.enemyDamage ?? 1));
     for (const e of this.enemies.list) {
       if (e.active && Math.hypot(e.pos.x - x, e.pos.y - y) < radius + e.radius) this.enemies.hit(e, 5, this.enemyCtx, true);
     }
@@ -953,7 +915,7 @@ export class Game {
     const run = this.run;
     run.kills++;
     run.tutorialCount++;
-    const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (run.level - 1) * 0.08));
+    const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (Math.max(1, run.level) - 1) * 0.08));
     run.score += pts;
     this.player.lumen = Math.min(1, this.player.lumen + 0.035 * lumenGain(this.save.data.upgrades));
     if (this.player.dashing) {
@@ -972,43 +934,37 @@ export class Game {
     const run = this.run;
     this.v3.set(it.pos.x, it.pos.y, 0);
     switch (it.kind) {
-      case 'plankton': {
+      case 'spark': {
         run.combo = run.comboTimer > 0 ? run.combo + 1 : 1;
-        run.comboTimer = 1.5;
+        run.comboTimer = 1.6;
         if (run.combo >= 40) this.unlock('combo');
         this.missionMax('combo', run.combo);
         run.sparks++;
         run.tutorialCount++;
-        p.addOxygen(5.5);
-        p.lumen = Math.min(1, p.lumen + 0.022 * (1 + run.combo * 0.04) * lumenGain(this.save.data.upgrades));
+        p.addEnergy(1.5);
+        p.lumen = Math.min(1, p.lumen + 0.024 * (1 + run.combo * 0.04) * lumenGain(this.save.data.upgrades));
         run.score += 10 * run.combo;
         audio.pickup(run.combo);
         this.missionAdd('sparks');
-        this.particles.burst(this.v3, { count: 8, color: 0xfff2b0, speed: 60, size: 5, life: 0.4 });
+        this.particles.burst(this.v3, { count: 6, color: 0xfff2b0, speed: 55, size: 5, life: 0.4 });
         break;
       }
-      case 'ammo':
-        p.ammo = Math.min(p.stats.maxAmmo, p.ammo + 22);
-        audio.ammo();
-        this.popupAt(it.pos.x, it.pos.y, '+22 charge');
-        break;
       case 'repair':
-        p.repair(30);
+        p.addEnergy(30);
         audio.powerup();
-        this.popupAt(it.pos.x, it.pos.y, '+30 hull');
+        this.popupAt(it.pos.x, it.pos.y, '+30 energy');
         break;
-      case 'pearl':
+      case 'shard':
         run.shards++;
         run.score += 500;
-        run.tutorialCount++;
         audio.chime();
         this.popupAt(it.pos.x, it.pos.y, 'Shard!');
         this.missionAdd('shards');
-        this.particles.burst(this.v3, { count: 30, color: 0xfff0f6, speed: 120, size: 6, life: 0.8 });
+        this.particles.burst(this.v3, { count: 24, color: 0xf0e0ff, speed: 110, size: 6, life: 0.8 });
         break;
       default: {
         const kind = it.kind as PowerUp;
-        if (kind === 'shield') p.shieldCharges = 3;
+        if (kind === 'shield') p.shieldCharges = 2;
         else p.powerups[kind] = 10;
         audio.powerup();
         this.save.data.stats.powerups++;
@@ -1026,19 +982,24 @@ export class Game {
   // ------------------------------------------------------------------ levels & bosses
 
   private startBoss() {
-    const info = this.run.def.boss!;
+    // The boss matches the world you are in when the fight starts.
+    const info = BOSS_TABLE[this.theme.family][this.run.def.bossSlot];
+    this.run.boss = info;
     this.mode = 'boss';
+    this.enemies.clear();
     this.boss = createBoss(info.kind, this.run.def.bossDifficulty);
     this.scene.add(this.boss.root);
     for (const x of this.boss.extras ?? []) this.scene.add(x);
     this.styler.apply(this.boss.root);
     for (const x of this.boss.extras ?? []) this.styler.apply(x);
     this.boss.enter(this.bounds);
-    this.run.bossHullAtStart = this.player.hull;
-    this.ui.card(info.name, info.title, 'The Blot takes shape');
+    this.run.bossHullAtStart = this.player.energy;
+    this.player.addEnergy(20);
+    this.ui.card(info.name, info.title, 'Boss');
     audio.bossRoar();
     audio.setBossMode(true);
-    this.rig.addTrauma(0.5);
+    this.rig.addTrauma(0.4);
+    this.governor.hold(3);
     try {
       this.renderer.compile();
     } catch {
@@ -1056,15 +1017,14 @@ export class Game {
 
   private onBossDefeated() {
     const run = this.run;
-    const info = run.def.boss!;
     run.score += 5000 * Math.ceil(run.level / 3);
     run.shards += 3;
-    this.player.repair(30);
-    this.player.addOxygen(40);
+    this.player.addEnergy(50);
     this.save.data.stats.bosses++;
     this.missionAdd('bosses');
-    this.unlock('boss_' + info.kind);
-    if (this.player.hull >= run.bossHullAtStart) this.unlock('untouchable');
+    this.unlock('boss_first');
+    this.unlock('boss_' + this.theme.family);
+    if (this.player.energy >= run.bossHullAtStart) this.unlock('untouchable');
     this.removeBoss();
     audio.setBossMode(false);
     this.popupAt(0, 0, '+3 shards');
@@ -1100,11 +1060,13 @@ export class Game {
     this.telegraph.clear();
     const next = this.pickTheme();
     void this.ui
-      .pageTurn(next, `Level ${run.level}`, run.def.boss ? 'Boss level' : next.name, () => {
+      .pageTurn(next, `Level ${run.level}`, run.def.bossSlot >= 0 ? 'Boss level' : next.name, () => {
         this.enemies.clear();
         this.pickups.clear();
         this.applyTheme(next, true);
         this.noteWorld(next.id);
+        audio.setEngine(next.family);
+        this.player.addEnergy(15);
         this.ui.setHudVisible(true, this.input.isTouch);
       })
       .then(() => {
@@ -1112,58 +1074,59 @@ export class Game {
         this.mode = 'play';
         this.modeTime = 0;
         audio.zoneEnter();
-        this.ui.card(next.name, next.line, run.def.boss ? `Level ${run.level} · Boss level` : `Level ${run.level}`);
+        this.ui.card(next.name, next.line, run.def.bossSlot >= 0 ? `Level ${run.level} · Boss level` : `Level ${run.level}`);
       });
   }
 
   // ------------------------------------------------------------------ tutorial
 
+  /**
+   * Each step keeps its targets topped up (`refill` runs every frame), so
+   * missing the first batch never leaves the player with nothing to do.
+   */
   private tutorialSteps: TutorialStep[] = [
     {
       title: 'Fly',
-      text: (t) => (t ? 'Drag anywhere to steer the cube. Collect 6 glowing sparks.' : 'The cube follows your mouse (or use WASD). Collect 6 glowing sparks.'),
+      text: (t) => (t ? 'Drag anywhere to steer. Fly through 5 of the glowing pickups.' : 'Your craft glides to the mouse pointer. Fly through 5 of the glowing pickups.'),
       setup: (g) => {
         g.run.tutorialCount = 0;
-        g.pickups.spawnPattern(g.bounds.x * 0.3, g.bounds);
       },
-      done: (g) => g.run.tutorialCount >= 6 || (g.modeTime > 14 && g.run.tutorialCount >= 2),
+      refill: (g) => {
+        if (g.pickups.countActive('spark') === 0) g.pickups.spawnPattern(g.bounds.x * 0.55, g.bounds);
+      },
+      done: (g) => g.run.tutorialCount >= 5,
     },
     {
       title: 'Fire',
-      text: (t) => (t ? 'Fire is automatic on touch. Destroy 3 creatures.' : 'Hold left click or Space to fire. Destroy 3 creatures.'),
+      text: (t) => (t ? 'Firing is automatic. Line up and destroy 3 targets.' : 'Hold left click or Space to fire. Destroy 3 targets.'),
       setup: (g) => {
         g.run.tutorialCount = 0;
-        for (let i = 0; i < 3; i++) g.enemies.spawn('urchin', g.bounds.x * (0.6 + i * 0.25), (i - 1) * 40, 1);
       },
-      done: (g) => g.run.tutorialCount >= 3 || g.enemies.activeCount === 0,
+      refill: (g) => {
+        if (g.enemies.activeCount === 0) for (let i = 0; i < 3; i++) g.enemies.spawn('urchin', g.bounds.x + 30 + i * 50, (i - 1) * 38, 1);
+      },
+      done: (g) => g.run.tutorialCount >= 3,
     },
     {
-      title: 'Dash',
-      text: (t) => (t ? 'Tap DASH to burst forward. You can ram straight through small creatures.' : 'Press Shift to dash. You are briefly untouchable and can ram straight through creatures.'),
+      title: 'Dodge',
+      text: (t) => (t ? 'Tap DODGE to roll up or down. Nothing can hit you while you roll. Dodge twice.' : 'Press Shift to roll up or down, toward your pointer. Nothing can hit you while you roll. Dodge twice.'),
       setup: (g) => {
-        g.run.dashes = 0;
-        g.run.dashKills = 0;
-        g.enemies.spawn('jelly', g.bounds.x * 0.5, 0, 1);
-        g.enemies.spawn('jelly', g.bounds.x * 0.8, 30, 1);
+        g.run.dodges = 0;
       },
-      done: (g) => g.run.dashKills >= 1 || g.run.dashes >= 3,
+      refill: (g) => {
+        if (g.enemies.activeCount === 0) g.enemies.spawn('debris', g.bounds.x * 0.7, g.bounds.y + 30, 1);
+      },
+      done: (g) => g.run.dodges >= 2,
     },
     {
-      title: 'Pulse',
-      text: (t) => (t ? 'Shards hide almost invisibly. Tap PULSE to reveal one, then collect it.' : 'Shards hide almost invisibly. Press E or right click to pulse, then collect the shard.'),
-      setup: (g) => {
-        g.run.tutorialCount = 0;
-        g.pickups.spawn('pearl', g.bounds.x * 0.7, -20);
-      },
-      done: (g) => g.run.tutorialCount >= 1 || !g.pickups.items.some((p) => p.active && p.kind === 'pearl'),
-    },
-    {
-      title: 'Bioflare',
-      text: (t) => (t ? 'Sparks charge your flare ring. It is full now: tap FLARE to clear the swarm.' : 'Sparks charge your flare ring. It is full now: press Q to clear the swarm.'),
+      title: 'Flare',
+      text: (t) => (t ? 'Pickups charge your flare ring. It is full: tap FLARE to clear the swarm.' : 'Pickups charge your flare ring. It is full: press Q to clear the swarm.'),
       setup: (g) => {
         g.run.flares = 0;
+      },
+      refill: (g) => {
         g.player.lumen = 1;
-        for (let i = 0; i < 5; i++) g.enemies.spawn('lanternfish', g.bounds.x + 20 + i * 18, (i - 2) * 22, 1);
+        if (g.enemies.activeCount < 3) for (let i = 0; i < 4; i++) g.enemies.spawn('lanternfish', g.bounds.x + 20 + i * 18, (i - 1.5) * 24, 1);
       },
       done: (g) => g.run.flares >= 1,
     },
@@ -1181,6 +1144,7 @@ export class Game {
     const i = this.run.tutorial;
     const s = this.tutorialSteps[i];
     if (!s) return;
+    s.refill(this);
     if (s.done(this)) {
       audio.chime();
       if (i + 1 < this.tutorialSteps.length) this.tutorialStep(i + 1);
@@ -1209,6 +1173,7 @@ export class Game {
     this.modeTime = 0;
     this.loop.timeScale = 0.35;
     audio.death();
+    audio.setEngine('off');
     audio.setBossMode(false);
     this.rig.addTrauma(0.8);
     this.v3.set(this.player.pos.x, this.player.pos.y, 0);
@@ -1217,7 +1182,7 @@ export class Game {
 
   private updateDead(dt: number) {
     this.updateWorld(dt, BASE_SPEED * 0.2);
-    this.player.update(dt, this.input, this.bounds, 0, -999);
+    this.player.update(dt, this.input, this.bounds, -999);
     this.updateCombat(dt);
     if (this.modeTime > 1.1 && this.ui.current !== 'death') {
       this.loop.timeScale = 1;
@@ -1238,7 +1203,6 @@ export class Game {
     s.stats.sparks += run.sparks;
     s.stats.seconds += run.time;
     if (s.stats.shardsTotal >= 25) this.unlock('pearls');
-    if (s.stats.reveals >= 60) this.unlock('echo');
     run.shards = 0;
     run.sparks = 0;
     run.time = 0;
@@ -1298,20 +1262,15 @@ export class Game {
       level: Math.max(1, run.level),
       world: run.tutorial >= 0 ? 'Practice page' : this.theme.name,
       progress: this.mode === 'boss' ? 1 : clamp(run.levelTime / run.def.duration, 0, 1),
-      hull: p.hull,
-      maxHull: p.stats.maxHull,
-      light: p.oxygen,
-      maxLight: p.stats.maxOxygen,
-      ammo: p.ammo,
+      energy: p.energy,
+      maxEnergy: p.stats.maxEnergy,
       score: run.score,
       combo: run.combo,
       lumen: p.lumen,
-      dashReady: 1 - p.dashCooldown / p.stats.dashCooldown,
-      pingReady: 1 - this.pingCd / PING_COOLDOWN,
+      dodgeReady: 1 - p.dodgeCooldown / p.stats.dodgeCooldown,
       shield: p.shieldCharges,
       magnet: p.powerups.magnet,
       spread: p.powerups.spread,
-      torpedo: p.powerups.torpedo,
       fps: this.loop.fps,
     });
   }

@@ -29,10 +29,29 @@ import { Random } from '../core/Random';
 
 export interface EnemyVisual {
   root: Group;
-  /** Materials whose emissive reacts to hits and sonar reveal. */
+  /** Materials whose emissive reacts to hits. */
   glowMats: MeshStandardMaterial[];
   baseEmissive: number[];
   parts: Record<string, Mesh | Group>;
+}
+
+/** One enemy slot with a body for each world family; `use` picks which one shows. */
+export class FamilyVisual implements EnemyVisual {
+  readonly root = new Group();
+  glowMats: MeshStandardMaterial[] = [];
+  baseEmissive: number[] = [];
+  parts: Record<string, Mesh | Group> = {};
+  constructor(private bodies: Record<'water' | 'sky' | 'space', EnemyVisual>) {
+    for (const b of Object.values(bodies)) this.root.add(b.root);
+    this.use('water');
+  }
+  use(family: 'water' | 'sky' | 'space') {
+    for (const [k, b] of Object.entries(this.bodies)) b.root.visible = k === family;
+    const b = this.bodies[family];
+    this.glowMats = b.glowMats;
+    this.baseEmissive = b.baseEmissive;
+    this.parts = b.parts;
+  }
 }
 
 let shared: ReturnType<typeof buildShared> | null = null;

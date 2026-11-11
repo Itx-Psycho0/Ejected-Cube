@@ -478,6 +478,35 @@ function glacier(): PropGeometry {
   };
 }
 
+function orbit(): PropGeometry {
+  const [ra, rb] = rocks();
+  const dish = mergePainted([
+    [at(new CylinderGeometry(0.8, 1.2, 14, 8), 0, 7, 0), W],
+    [at(new SphereGeometry(8, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2.4).rotateX(Math.PI * 0.85), 0, 20, 0), W],
+    [at(new CylinderGeometry(0.2, 0.2, 8, 6), 0, 18, 3), 0x8fd1e8],
+  ]);
+  const hab = mergePainted([
+    [at(new SphereGeometry(8, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), 0, 0, 0), W],
+    [at(new CylinderGeometry(3, 3, 5, 12).rotateZ(Math.PI / 2), 9, 2.5, 0), 0x6a6a78],
+    [at(new BoxGeometry(1, 3, 6), 0, 9, 0), 0x8fd1e8],
+  ]);
+  const crater = paint(new TorusGeometry(8, 2.2, 6, 18).rotateX(Math.PI / 2), W);
+  return {
+    tall: dish,
+    tallScale: [0.8, 1.4],
+    cluster: [hab, crater, crystals(5)],
+    clusterScale: [0.8, 1.5],
+    stem: paint(at(new CylinderGeometry(0.4, 0.5, 3, 6), 0, 1.5, 0), W),
+    head: paint(at(new SphereGeometry(0.8, 8, 6), 0, 3.4, 0), W),
+    rockA: ra,
+    rockB: rb,
+    special: mergePainted([[at(new CylinderGeometry(2, 3, 22, 8), 0, 11, 0), 0x6a6a78]]),
+    specialGlow: paint(new SphereGeometry(2.4, 10, 6), W),
+    specialTop: 23,
+    plume: 'motes',
+  };
+}
+
 const builders: Record<PropSet, () => PropGeometry> = {
   abyss,
   paper,
@@ -489,6 +518,7 @@ const builders: Record<PropSet, () => PropGeometry> = {
   ink,
   mesa,
   glacier,
+  orbit,
 };
 
 const cache = new Map<PropSet, PropGeometry>();

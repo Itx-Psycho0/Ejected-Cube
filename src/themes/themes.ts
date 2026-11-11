@@ -6,7 +6,9 @@ import type { MusicMood } from '../audio/AudioEngine';
  * reads anything in here except `world.darkness`.
  */
 
-export type ThemeId = 'abyss' | 'paper' | 'tech' | 'sketch' | 'summer' | 'brick' | 'clay' | 'ink' | 'mesa' | 'glacier';
+export type ThemeId = 'abyss' | 'paper' | 'tech' | 'sketch' | 'summer' | 'brick' | 'clay' | 'ink' | 'mesa' | 'glacier' | 'orbit';
+/** Decides the vehicle, creatures, pickups and bosses of a world. */
+export type Family = 'water' | 'sky' | 'space';
 export type MaterialStyle = 'pbr' | 'toon' | 'flat' | 'plastic' | 'clay';
 export type PropSet = ThemeId;
 export type GroundTexture = 'sand' | 'paper' | 'tiles' | 'studs' | 'snow' | 'clay';
@@ -111,6 +113,7 @@ export interface ThemeUi {
 
 export interface ThemeDef {
   id: ThemeId;
+  family: Family;
   name: string;
   /** One line of story for the world's title card. */
   line: string;
@@ -140,27 +143,28 @@ const body = "'Nunito Sans Variable', 'Segoe UI', system-ui, sans-serif";
 export const THEMES: Record<ThemeId, ThemeDef> = {
   abyss: {
     id: 'abyss',
-    name: 'Abyssal Trench',
-    line: 'Six kilometres of black water. Things down here make their own light.',
+    family: 'water',
+    name: 'Deep Reef',
+    line: 'Blue water, tall kelp and slow giants overhead.',
     material: 'pbr',
     world: {
-      fog: 0x061226,
-      fogDensity: 0.0029,
-      skyTop: 0x0d2a44,
-      skyHorizon: 0x061428,
-      skyBottom: 0x030a14,
-      sunColor: 0x5a80b8,
-      sun: 0.45,
+      fog: 0x0b2a44,
+      fogDensity: 0.0022,
+      skyTop: 0x1f5f86,
+      skyHorizon: 0x0f3a5a,
+      skyBottom: 0x0b2a44,
+      sunColor: 0x9cc8ff,
+      sun: 1.1,
       sunDisc: -1,
-      skyLight: 0x6a8ab8,
+      skyLight: 0x8ac0f0,
       groundLight: 0x050505,
-      ambient: 1.15,
-      rays: 0.15,
-      caustics: 0,
+      ambient: 1.5,
+      rays: 0.6,
+      caustics: 0.5,
       aurora: 0,
-      darkness: 1,
-      ground: 0x5e5a56,
-      groundAlt: 0x4e4a48,
+      darkness: 0.35,
+      ground: 0x8a8672,
+      groundAlt: 0x5e6468,
       groundTexture: 'sand',
       groundRoughness: 1,
       hills: 1,
@@ -172,7 +176,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       small: [0xe8e2d4, 0xd8182f],
       rock: [0x4e4a48, 0x5e5a56],
       special: 0xff6a1a,
-      density: { tall: 0.25, cluster: 0.2, small: 1, rocks: 1, special: 1 },
+      density: { tall: 0.6, cluster: 0.5, small: 0.6, rocks: 0.8, special: 0.6 },
       sway: 2.6,
       clouds: { count: 0, color: 0, opacity: 0, flat: false, height: 0 },
       flock: 'fish',
@@ -182,9 +186,9 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     particles: { color: 0xbfd8ee, size: 1, fall: 4, drift: 0, square: false, additive: true, opacity: 1 },
     fx: { bloom: 1.3, bloomThreshold: 0.62, outline: 0, outlineColor: 0x000000, posterize: 0, hatch: 0, paper: 0, ink: 0, saturation: 1, contrast: 1, vignette: 0.72, grain: 0.07, chromatic: true },
     ui: {
-      bg: '#06121f',
-      panel: 'rgba(10, 30, 44, 0.72)',
-      panelSolid: '#0c2232',
+      bg: '#0d2f47',
+      panel: 'rgba(16, 52, 76, 0.88)',
+      panelSolid: '#123a55',
       ink: '#dfeae6',
       muted: '#8fa8a4',
       accent: '#7fd1b9',
@@ -208,12 +212,13 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     },
     mood: { root: 52, scale: PHRYGIAN, bpm: 58, density: 0.2, cutoff: 750 },
     ambience: 380,
-    beam: 1,
-    swatches: ['#061226', '#0d2a44', '#7fd1b9', '#e8b06a', '#ff9a5a'],
+    beam: 0.5,
+    swatches: ['#0b2a44', '#1f5f86', '#7fd1b9', '#e8b06a', '#ff9a5a'],
   },
 
   paper: {
     id: 'paper',
+    family: 'sky',
     name: 'Paper Sky',
     line: 'Folded hills and cut-out clouds. Mind the creases.',
     material: 'flat',
@@ -288,6 +293,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   tech: {
     id: 'tech',
+    family: 'space',
     name: 'Clean Room',
     line: 'A laboratory the size of a continent. Everything here was built to be measured.',
     material: 'pbr',
@@ -362,6 +368,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   sketch: {
     id: 'sketch',
+    family: 'sky',
     name: 'Sketchbook',
     line: 'An unfinished page. Everything is still being drawn, including you.',
     material: 'toon',
@@ -436,6 +443,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   summer: {
     id: 'summer',
+    family: 'sky',
     name: 'Summer Sky',
     line: 'Cicadas, power lines and clouds taller than mountains. A good day to fly.',
     material: 'toon',
@@ -510,6 +518,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   brick: {
     id: 'brick',
+    family: 'sky',
     name: 'Brick Town',
     line: 'Every hill clicks into place. Every creature does too.',
     material: 'plastic',
@@ -584,6 +593,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   clay: {
     id: 'clay',
+    family: 'sky',
     name: 'Clay Valley',
     line: 'Soft, warm and slightly thumb-printed. Squash anything that squashes you.',
     material: 'clay',
@@ -658,6 +668,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   ink: {
     id: 'ink',
+    family: 'sky',
     name: 'Ink Mountains',
     line: 'Brushed mountains and wet mist. The Blot feels at home here. So should you.',
     material: 'toon',
@@ -732,6 +743,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   mesa: {
     id: 'mesa',
+    family: 'sky',
     name: 'Red Mesa',
     line: 'Heat shimmer, long shadows and nothing for miles. Except you.',
     material: 'pbr',
@@ -806,6 +818,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
 
   glacier: {
     id: 'glacier',
+    family: 'sky',
     name: 'Glacier Light',
     line: 'Polar night, singing ice and the aurora overhead. Breathe slowly.',
     material: 'pbr',
@@ -876,6 +889,80 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     ambience: 1200,
     beam: 0.3,
     swatches: ['#1d3557', '#9cc8dc', '#eef6f9', '#3aa98a', '#7b6fd6'],
+  },
+  orbit: {
+    id: 'orbit',
+    family: 'space',
+    name: 'Low Orbit',
+    line: 'Grey dust below, every star at once above. Quiet, until it is not.',
+    material: 'pbr',
+    world: {
+      fog: 0x0c0e1a,
+      fogDensity: 0.0011,
+      skyTop: 0x05060f,
+      skyHorizon: 0x1a1d3a,
+      skyBottom: 0x0c0e1a,
+      sunColor: 0xfff4e0,
+      sun: 2.6,
+      sunDisc: 0.34,
+      skyLight: 0xb4bcf0,
+      groundLight: 0x2a2a34,
+      ambient: 1.5,
+      rays: 0,
+      caustics: 0,
+      aurora: 0.45,
+      darkness: 0.2,
+      ground: 0xb4b4c0,
+      groundAlt: 0x7a7a8a,
+      groundTexture: 'snow',
+      groundRoughness: 1,
+      hills: 0.9,
+      ridges: 1.2,
+    },
+    props: {
+      tall: [0xd5d9dd, 0xb9bfc5],
+      cluster: [0x7a7a88, 0x8fd1e8, 0xd5d9dd],
+      small: [0x8a8a98, 0x8fd1e8],
+      rock: [0x6a6a78, 0x85858f],
+      special: 0x8fd1e8,
+      density: { tall: 0.25, cluster: 0.45, small: 0.4, rocks: 1, special: 0.6 },
+      sway: 0,
+      clouds: { count: 0, color: 0, opacity: 0, flat: false, height: 0 },
+      flock: 'drones',
+      flockColors: [0xd5d9dd],
+      giant: false,
+    },
+    particles: { color: 0xffffff, size: 0.7, fall: 0, drift: -2, square: false, additive: true, opacity: 1 },
+    fx: { bloom: 1, bloomThreshold: 0.7, outline: 0, outlineColor: 0x000000, posterize: 0, hatch: 0, paper: 0, ink: 0, saturation: 1, contrast: 1.06, vignette: 0.55, grain: 0.04, chromatic: false },
+    ui: {
+      bg: '#14162a',
+      panel: 'rgba(28, 31, 58, 0.9)',
+      panelSolid: '#1f2242',
+      ink: '#eceaf6',
+      muted: '#9a9cc0',
+      accent: '#f2c14e',
+      accentInk: '#14162a',
+      accent2: '#8fd1e8',
+      line: 'rgba(200, 204, 255, 0.2)',
+      danger: '#f08a7a',
+      good: '#8fd1e8',
+      radius: '8px',
+      border: '1px',
+      shadow: '0 20px 50px rgba(0,0,0,.35)',
+      display: "'Josefin Sans Variable', 'Segoe UI', sans-serif",
+      body,
+      numeric: "'IBM Plex Mono', ui-monospace, monospace",
+      panelStyle: 'card',
+      labelCase: 'uppercase',
+      labelTracking: '0.2em',
+      titleWeight: 700,
+      hudInk: '#f4f2ff',
+      hudShadow: '0 1px 3px rgba(0,0,0,.7)',
+    },
+    mood: { root: 50, scale: LYDIAN, bpm: 60, density: 0.3, cutoff: 2600 },
+    ambience: 900,
+    beam: 0,
+    swatches: ['#05060f', '#1a1d3a', '#9a9aa6', '#f2c14e', '#8fd1e8'],
   },
 };
 

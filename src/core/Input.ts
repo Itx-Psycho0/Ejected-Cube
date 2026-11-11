@@ -1,31 +1,25 @@
 import { Vector2 } from 'three';
 
-export type Action = 'fire' | 'dash' | 'ping' | 'flare' | 'pause';
-export type Device = 'pointer' | 'keys' | 'touch';
+export type Action = 'fire' | 'dash' | 'flare' | 'pause';
+export type Device = 'pointer' | 'touch';
 
 const KEY_ACTIONS: Record<string, Action> = {
   Space: 'fire',
-  KeyJ: 'fire',
   ShiftLeft: 'dash',
   ShiftRight: 'dash',
-  KeyK: 'dash',
-  KeyE: 'ping',
-  KeyL: 'ping',
   KeyQ: 'flare',
-  KeyI: 'flare',
+  KeyE: 'flare',
   Escape: 'pause',
   KeyP: 'pause',
 };
 
 /**
- * Unifies mouse, keyboard and touch into one control scheme:
- * - `aim` is a target position in normalized screen space (-1..1).
- * - `axis` is a direct movement vector for keyboard play.
- * - actions are tracked as held + pressed-this-frame.
+ * One control scheme for mouse and touch: `aim` is where the craft should
+ * go, in normalized screen space (-1..1). Actions are tracked as held and
+ * pressed-this-frame.
  */
 export class Input {
   readonly aim = new Vector2(0, 0);
-  readonly axis = new Vector2();
   device: Device = 'pointer';
   autoFire = false;
   private held = new Set<Action>();
@@ -54,10 +48,6 @@ export class Input {
     if (a) {
       this.press(a);
       if (a !== 'pause') e.preventDefault();
-    }
-    if (/^(Key[WASD]|Arrow)/.test(e.code)) {
-      this.device = 'keys';
-      e.preventDefault();
     }
   };
 
@@ -99,7 +89,7 @@ export class Input {
     this.device = 'pointer';
     this.toNdc(e, this.aim);
     if (e.button === 0) this.press('fire');
-    if (e.button === 2) this.press('ping');
+    if (e.button === 2) this.press('dash');
   };
 
   private onPointerUp = (e: PointerEvent) => {
@@ -108,7 +98,7 @@ export class Input {
       return;
     }
     if (e.button === 0) this.held.delete('fire');
-    if (e.button === 2) this.held.delete('ping');
+    if (e.button === 2) this.held.delete('dash');
   };
 
   /** Also used by on-screen touch buttons. */
@@ -144,11 +134,7 @@ export class Input {
   }
 
   update() {
-    const k = this.keys;
-    const x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    const y = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    this.axis.set(x, y);
-    if (this.axis.lengthSq() > 1) this.axis.normalize();
+    /* pointer state is event driven */
   }
 
   get isTouch() {

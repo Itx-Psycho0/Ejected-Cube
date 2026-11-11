@@ -42,7 +42,7 @@ export class Kraken extends Boss {
   readonly extras: Object3D[] = [];
 
   constructor(difficulty: number) {
-    super(200, difficulty);
+    super(160, difficulty);
     this.registerGlow(this.skin as unknown as import('three').MeshStandardMaterial);
 
     // Mantle: long torpedo body pointing right, head at the origin.
@@ -141,7 +141,7 @@ export class Kraken extends Boss {
   private *ink(ctx: BossContext) {
     this.v3.set(this.pos.x - 10, this.pos.y, 0);
     ctx.particles.burst(this.v3, { count: 90, color: 0x0a0612, speed: 140, size: 60, life: 4, drag: 1.4, smoke: true, spread: 10 });
-    ctx.darken(0.55, 4);
+    ctx.darken(0.25, 3);
     ctx.sfx('roar');
     yield 0.4;
     for (let i = 0; i < (this.phase2 ? 8 : 5); i++) {

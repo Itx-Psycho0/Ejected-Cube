@@ -50,20 +50,15 @@ export interface HudState {
   level: number;
   world: string;
   progress: number;
-  hull: number;
-  maxHull: number;
-  light: number;
-  maxLight: number;
-  ammo: number;
+  energy: number;
+  maxEnergy: number;
   score: number;
   combo: number;
   lumen: number;
-  dashReady: number;
-  pingReady: number;
+  dodgeReady: number;
   shield: number;
   magnet: number;
   spread: number;
-  torpedo: number;
   fps: number;
 }
 
@@ -83,8 +78,8 @@ export interface RunSummary {
 }
 
 const DEATH_TEXT: Record<DeathCause, [string, string]> = {
-  hull: ['Cube shattered', 'The Blot got a corner of you. Corners grow back.'],
-  oxygen: ['Light went out', 'The cube ran dry. Sparks keep it glowing.'],
+  hull: ['Knocked out of the sky', 'The Blot got a piece of you. Pieces grow back.'],
+  oxygen: ['Out of energy', 'The cube ran dry. Pickups keep it going.'],
   crushed: ['Pressed flat', 'Somewhere a page closed on you.'],
 };
 
@@ -291,7 +286,7 @@ export class UI {
             .join('')}</div>
         </div>
       </div>
-      <div class="home-foot"><span>${icon('shard', 'icon')} <b>${s.shards}</b> shards</span><span>Best level <b>${s.best.level || '–'}</b></span><span>Best score <b>${formatInt(s.best.score)}</b></span><span>Worlds seen <b>${s.worldsSeen.length}/10</b></span></div>
+      <div class="home-foot"><span>${icon('shard', 'icon')} <b>${s.shards}</b> shards</span><span>Best level <b>${s.best.level || '–'}</b></span><span>Best score <b>${formatInt(s.best.score)}</b></span><span>Worlds seen <b>${s.worldsSeen.length}/${THEME_IDS.length}</b></span></div>
     </section>`);
     el.querySelectorAll<SVGElement>('.reward .icon').forEach((i) => (i.style.cssText = 'width:14px;height:14px;vertical-align:-2px'));
     el.querySelectorAll<SVGElement>('.home-foot .icon').forEach((i) => (i.style.cssText = 'width:16px;height:16px;vertical-align:-3px'));
@@ -314,8 +309,8 @@ export class UI {
     const nodes = Array.from({ length: max }, (_, i) => {
       const n = i + 1;
       const d = levelDef(n);
-      const cls = ['node', n <= hi ? 'reached' : '', d.boss ? 'boss' : '', d.checkpoint ? 'checkpoint' : ''].join(' ');
-      const title = d.boss ? `Level ${n}: ${d.boss.name}` : `Level ${n}`;
+      const cls = ['node', n <= hi ? 'reached' : '', d.bossSlot >= 0 ? 'boss' : '', d.checkpoint ? 'checkpoint' : ''].join(' ');
+      const title = d.bossSlot >= 0 ? `Level ${n}: boss` : `Level ${n}`;
       return `<button class="${cls}" data-n="${n}" title="${title}" ${d.checkpoint && n <= hi ? '' : 'disabled'}>${n}</button>`;
     }).join('');
     const el = h(`<section id="journey" class="screen veil enter">
@@ -411,21 +406,18 @@ export class UI {
       <div class="head"><div class="eyebrow">Field notes</div><h2>How to fly</h2></div>
       <div class="grid2">
         <div class="panel"><div class="keys">
-          <kbd>Mouse</kbd><span>The cube follows your pointer</span>
-          <kbd>WASD / Arrows</kbd><span>Fly with the keyboard</span>
-          <kbd>Left click / Space</kbd><span>Hold to fire light bolts</span>
-          <kbd>Right click / E</kbd><span>Pulse: reveals hidden creatures and shards</span>
-          <kbd>Shift</kbd><span>Dash: a burst of speed you can ram creatures with</span>
-          <kbd>Q</kbd><span>Bioflare when the flare ring is full: clears the screen</span>
+          <kbd>Mouse</kbd><span>Your craft glides to the pointer</span>
+          <kbd>Left click / Space</kbd><span>Hold to fire</span>
+          <kbd>Shift / Right click</kbd><span>Dodge: a fast roll up or down, toward your pointer. Nothing can hit you during it</span>
+          <kbd>Q</kbd><span>Flare, when its ring is full: clears the screen</span>
           <kbd>Esc / P</kbd><span>Pause</span>
-          <kbd>Touch</kbd><span>Drag anywhere to steer; fire is automatic</span>
+          <kbd>Touch</kbd><span>Drag to steer; fire is automatic</span>
         </div></div>
         <div class="panel" style="display:flex;flex-direction:column;gap:12px">
-          <div class="tip"><i class="dot" style="background:var(--accent)"></i><span><b>Light fades.</b> Collect glowing sparks to keep the cube lit. Chain them for a combo.</span></div>
-          <div class="tip"><i class="dot" style="background:var(--accent2)"></i><span><b>Hull</b> is your health. Repair kits patch it up.</span></div>
-          <div class="tip"><i class="dot" style="background:var(--muted)"></i><span><b>Pulse charge</b> refills slowly by itself and from violet canisters.</span></div>
-          <div class="tip"><i class="dot" style="background:var(--danger)"></i><span><b>Red lanes</b> warn you where a boss is about to strike.</span></div>
-          <div class="tip"><i class="dot" style="background:var(--ink)"></i><span><b>Shards</b> hide on every page. Pulse to find them, then spend them in the hangar.</span></div>
+          <div class="tip"><i class="dot" style="background:var(--accent)"></i><span><b>One bar: Energy.</b> Flying burns it slowly and hits take a chunk. Pickups give it back.</span></div>
+          <div class="tip"><i class="dot" style="background:var(--accent2)"></i><span><b>Chain pickups</b> for a combo. Combos fill the flare ring faster.</span></div>
+          <div class="tip"><i class="dot" style="background:var(--danger)"></i><span><b>Bosses</b> hold the screen still. Red lanes show where the next attack lands.</span></div>
+          <div class="tip"><i class="dot" style="background:var(--ink)"></i><span><b>Your craft changes with the world:</b> a capsule underwater, a fighter in the sky, a starship in space.</span></div>
         </div>
       </div>
       <div class="row"><button class="btn" data-a="tutorial">Play the tutorial</button><button class="btn primary" data-a="back">Back</button></div></section>`);
@@ -584,7 +576,7 @@ export class UI {
       <div class="panel" style="width:min(820px,100%)">
         <div class="tabs" role="tablist">
           <button role="tab" data-t="ach" aria-selected="${tab === 'ach'}">Achievements ${s.achievements.length}/${ACHIEVEMENTS.length}</button>
-          <button role="tab" data-t="worlds" aria-selected="${tab === 'worlds'}">Worlds ${s.worldsSeen.length}/10</button>
+          <button role="tab" data-t="worlds" aria-selected="${tab === 'worlds'}">Worlds ${s.worldsSeen.length}/${THEME_IDS.length}</button>
           <button role="tab" data-t="rec" aria-selected="${tab === 'rec'}">Records</button>
           <button role="tab" data-t="stats" aria-selected="${tab === 'stats'}">Stats</button>
         </div>${body}</div>
@@ -664,9 +656,9 @@ export class UI {
   /** First-visit guided tour of the home screen. */
   coachHome(onDone: () => void) {
     const steps: [string, string, string][] = [
-      ['play', 'Start here', 'Every run opens on a random world. Levels get harder as you go, with a boss every third level.'],
+      ['play', 'Start here', 'Every run opens on a random world, and your craft changes to suit it. Levels get harder as you go, with a boss every third level.'],
       ['world', 'Turn the page', 'Preview another world. The whole interface changes with it.'],
-      ['hangar', 'Make it yours', 'Paint the cube, change its shape and light, and buy upgrades with shards.'],
+      ['hangar', 'Make it yours', 'Paint your craft, pick a trail, and buy upgrades with shards.'],
       ['missions', 'Missions', 'Three goals at a time. Finish one for shards and a new one takes its place.'],
       ['journey', 'Journey', 'Once you pass a boss, you can start later runs from that checkpoint.'],
     ];
@@ -751,23 +743,20 @@ export class UI {
           <div class="lvl-line"><span class="pill" data-h="lvl">Level 1</span><span class="lvl-prog"><i data-h="prog"></i></span></div>
         </div>
         <div class="meters">
-          <div class="meter hull" data-h="hullm"><span class="hud-label">Hull</span><span class="track"><i data-h="hull"></i></span><b data-h="hulln">100</b></div>
-          <div class="meter light" data-h="lightm"><span class="hud-label">Light</span><span class="track"><i data-h="light"></i></span><b data-h="lightn">100</b></div>
+          <div class="meter energy" data-h="energym"><span class="hud-label">Energy</span><span class="track"><i data-h="energy"></i></span><b data-h="energyn">100</b></div>
           <div class="hud-chips" data-h="chips"></div>
         </div>
       </div>
       <div></div>
       <div class="hud-bot">
         <div class="abilities">
-          <div class="ability" data-h="dashA" title="Dash">${icon('dash')}<svg class="ring" width="58" height="58"><circle cx="29" cy="29" r="26" data-h="dashC"></circle></svg><kbd>Shift</kbd></div>
-          <div class="ability" data-h="pingA" title="Pulse">${icon('pulse')}<svg class="ring" width="58" height="58"><circle cx="29" cy="29" r="26" data-h="pingC"></circle></svg><kbd>E</kbd></div>
-          <div class="ability flare" data-h="flareA" title="Bioflare">${icon('flare')}<svg class="ring" width="58" height="58"><circle cx="29" cy="29" r="26" data-h="flareC"></circle></svg><kbd>Q</kbd></div>
+          <div class="ability" data-h="dashA" title="Dodge">${icon('dash')}<svg class="ring" width="58" height="58"><circle cx="29" cy="29" r="26" data-h="dashC"></circle></svg><kbd>Shift</kbd></div>
+          <div class="ability flare" data-h="flareA" title="Flare">${icon('flare')}<svg class="ring" width="58" height="58"><circle cx="29" cy="29" r="26" data-h="flareC"></circle></svg><kbd>Q</kbd></div>
         </div>
         <div class="ammo">
           <div class="combo" data-h="combo"></div>
-          <div class="hud-label">Pulse charge</div>
-          <div class="n" data-h="ammo">40</div>
-          <div class="score">Score <b data-h="score">0</b></div>
+          <div class="hud-label">Score</div>
+          <div class="n" data-h="score">0</div>
         </div>
       </div>
       <div id="bossbar" hidden><div class="hud-label" data-h="bosstitle"></div><div class="name" data-h="bossname"></div><div class="track"><i data-h="bosshp"></i></div></div>
@@ -777,8 +766,7 @@ export class UI {
       <div id="toasts"></div>
       <div id="fps" hidden></div>
       <div id="touch" hidden>
-        <button data-t="dash" aria-label="Dash">Dash</button><button data-t="ping" aria-label="Pulse">Pulse</button>
-        <button data-t="flare" aria-label="Bioflare">Flare</button><button data-t="fire" aria-label="Toggle auto fire">Fire</button>
+        <button data-t="dash" aria-label="Dodge">Dodge</button><button data-t="flare" aria-label="Flare">Flare</button>
       </div>
       <button id="pause-btn" aria-label="Pause" hidden>${icon('pause')}</button>
       <div id="fade"></div>
@@ -790,9 +778,9 @@ export class UI {
     this.els.pauseBtn = this.hud.querySelector('#pause-btn')!;
   }
 
-  bindTouch(press: (a: 'dash' | 'ping' | 'flare' | 'fire' | 'pause', down: boolean) => void) {
+  bindTouch(press: (a: 'dash' | 'flare' | 'pause', down: boolean) => void) {
     this.els.touch.querySelectorAll<HTMLElement>('button').forEach((b) => {
-      const a = b.dataset.t as 'dash' | 'ping' | 'flare' | 'fire';
+      const a = b.dataset.t as 'dash' | 'flare';
       b.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         press(a, true);
@@ -831,27 +819,20 @@ export class UI {
     this.set('dist', formatInt(s.distance));
     this.set('lvl', `Level ${s.level} · ${s.world}`);
     this.set('prog', `${(s.progress * 100).toFixed(1)}%`, 'width');
-    const hp = s.hull / s.maxHull;
-    const li = s.light / s.maxLight;
-    this.set('hull', `${(hp * 100).toFixed(1)}%`, 'width');
-    this.set('hulln', String(Math.ceil(s.hull)));
-    this.set('light', `${(li * 100).toFixed(1)}%`, 'width');
-    this.set('lightn', String(Math.ceil(s.light)));
-    this.set('hullm', `meter hull${hp < 0.3 ? ' warn' : ''}`, 'class');
-    this.set('lightm', `meter light${li < 0.25 ? ' warn' : ''}`, 'class');
-    this.set('ammo', String(s.ammo));
+    const e = s.energy / s.maxEnergy;
+    this.set('energy', `${(e * 100).toFixed(1)}%`, 'width');
+    this.set('energyn', String(Math.ceil(s.energy)));
+    this.set('energym', `meter energy${e < 0.28 ? ' warn' : ''}`, 'class');
     this.set('score', formatInt(s.score));
     this.set('combo', s.combo > 1 ? `×${s.combo}` : '');
     const ring = (k: string, v: number) => this.set(k, String(163 * (1 - Math.max(0, Math.min(1, v)))), 'dash');
-    ring('dashC', s.dashReady);
-    ring('pingC', s.pingReady);
+    ring('dashC', s.dodgeReady);
     ring('flareC', s.lumen);
     this.set('flareA', `ability flare${s.lumen >= 1 ? ' full' : ''}`, 'class');
     const chips: string[] = [];
     if (s.shield > 0) chips.push(`<span class="hud-chip">Shield ×${s.shield}</span>`);
     if (s.magnet > 0) chips.push(`<span class="hud-chip">Magnet ${Math.ceil(s.magnet)}s</span>`);
     if (s.spread > 0) chips.push(`<span class="hud-chip">Triple ${Math.ceil(s.spread)}s</span>`);
-    if (s.torpedo > 0) chips.push(`<span class="hud-chip">Seekers ${Math.ceil(s.torpedo)}s</span>`);
     const chipHtml = chips.join('');
     if (this.hudCache.get('chips') !== chipHtml) {
       this.hudCache.set('chips', chipHtml);

@@ -33,7 +33,7 @@ export class Leviathan extends Boss {
   readonly extras: Object3D[] = [];
 
   constructor(difficulty: number) {
-    super(260, difficulty);
+    super(190, difficulty);
     const tex = getTextures();
     const armour = new MeshStandardMaterial({
       color: 0x3a4a48,

@@ -35,6 +35,11 @@ export class AudioEngine {
   private noiseBuf!: AudioBuffer;
   private droneOsc: OscillatorNode[] = [];
   private droneGain!: GainNode;
+  private engineOsc!: OscillatorNode;
+  private engineGain!: GainNode;
+  private engineFilter!: BiquadFilterNode;
+  private engineTrem!: OscillatorNode;
+  private engineBase = 60;
   private schedTimer = 0;
   private nextNote = 0;
   private step = 0;
@@ -69,8 +74,13 @@ export class AudioEngine {
     this.reverbSend = ctx.createGain();
     this.reverbSend.connect(reverb);
 
+    // Effects pass through a gentle lowpass so nothing sounds harsh or clicky.
     this.sfx = ctx.createGain();
-    this.sfx.connect(this.master);
+    const soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 5200;
+    soften.Q.value = 0.3;
+    this.sfx.connect(soften).connect(this.master);
 
     this.musicFilter = ctx.createBiquadFilter();
     this.musicFilter.type = 'lowpass';
@@ -242,153 +252,169 @@ export class AudioEngine {
       o.start();
       this.droneOsc.push(o);
     }
+
+    // Engine hum: one oscillator through a lowpass, with a tremolo for propellers.
+    this.engineOsc = ctx.createOscillator();
+    this.engineOsc.type = 'triangle';
+    this.engineOsc.frequency.value = 60;
+    this.engineFilter = ctx.createBiquadFilter();
+    this.engineFilter.type = 'lowpass';
+    this.engineFilter.frequency.value = 300;
+    this.engineGain = ctx.createGain();
+    this.engineGain.gain.value = 0;
+    this.engineTrem = ctx.createOscillator();
+    this.engineTrem.frequency.value = 18;
+    const tremAmt = ctx.createGain();
+    tremAmt.gain.value = 0.012;
+    this.engineTrem.connect(tremAmt).connect(this.engineGain.gain);
+    this.engineOsc.connect(this.engineFilter).connect(this.engineGain).connect(this.sfx);
+    this.engineOsc.start();
+    this.engineTrem.start();
   }
 
+  /** Pick the engine voice for the craft: submarine hum, propeller buzz or ion whine. */
+  setEngine(kind: 'water' | 'sky' | 'space' | 'off') {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    if (kind === 'off') {
+      this.engineGain.gain.setTargetAtTime(0, t, 0.3);
+      return;
+    }
+    this.engineOsc.type = kind === 'sky' ? 'sawtooth' : kind === 'space' ? 'sine' : 'triangle';
+    this.engineBase = kind === 'sky' ? 82 : kind === 'space' ? 120 : 55;
+    this.engineTrem.frequency.setTargetAtTime(kind === 'sky' ? 26 : 5, t, 0.2);
+    this.engineFilter.frequency.setTargetAtTime(kind === 'sky' ? 420 : kind === 'space' ? 900 : 260, t, 0.3);
+    this.engineGain.gain.setTargetAtTime(kind === 'sky' ? 0.03 : 0.045, t, 0.6);
+  }
+
+  /** 0..1 how hard the craft is moving; raises the engine pitch a little. */
+  setThrust(v: number) {
+    if (!this.ctx) return;
+    this.engineOsc.frequency.setTargetAtTime(this.engineBase * (1 + v * 0.35), this.ctx.currentTime, 0.12);
+  }
+
+  /**
+   * Generative music: a slow four-chord loop of soft pads, a bass note on
+   * each bar and a rolling arpeggio through the chord. `density` thins the
+   * arpeggio out for calmer worlds.
+   */
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
     const m = this.mood;
     const spb = 60 / m.bpm / 2; // eighth notes
+    const L = m.scale.length;
+    const note = (deg: number) => m.scale[((deg % L) + L) % L] + 12 * Math.floor(deg / L);
     while (this.nextNote < ctx.currentTime + 0.25) {
       const t = this.nextNote;
       const s = this.step;
-      // Pad chord every 16 eighths.
-      if (s % 16 === 0) {
-        const deg = [0, 3, 1, 4][(s / 16) % 4];
+      const bar = Math.floor(s / 8);
+      const deg = [0, 3, 4, 2][bar % 4];
+      if (s % 8 === 0) {
         for (const k of [0, 2, 4]) {
-          const n = m.scale[(deg + k) % m.scale.length] + (deg + k >= m.scale.length ? 12 : 0);
-          this.tone('triangle', semis(m.root * 2, n), semis(m.root * 2, n), spb * 15, 0.035, {
-            attack: spb * 5,
-            dest: this.music,
-            when: t,
-            detune: (k - 2) * 4,
-          });
+          const f = semis(m.root * 2, note(deg + k));
+          this.tone('sine', f, f, spb * 8.5, 0.045, { attack: spb * 2.5, dest: this.music, when: t, detune: (k - 2) * 3 });
+          this.tone('triangle', f, f, spb * 8.5, 0.012, { attack: spb * 3, dest: this.music, when: t, detune: 5 });
         }
+        const bf = semis(m.root, note(deg));
+        this.tone('sine', bf, bf, spb * 6, 0.09, { attack: 0.03, dest: this.music, when: t });
       }
-      // Sparse plucked arpeggio.
-      if (Math.random() < m.density * (s % 2 === 0 ? 1 : 0.5)) {
-        const n = m.scale[Math.floor(Math.random() * m.scale.length)] + 12 * Math.floor(Math.random() * 2);
-        this.tone('sine', semis(m.root * 4, n), semis(m.root * 4, n), spb * 3, 0.05, { dest: this.music, when: t });
+      const pattern = [0, 2, 4, 7, 4, 2, 4, 2];
+      const play = s % 2 === 0 ? m.density + 0.35 : m.density * 0.8;
+      // A fixed pattern per bar keeps it musical; the hash decides which steps rest.
+      const hash = ((bar * 7 + (s % 8) * 13) % 10) / 10;
+      if (hash < play) {
+        const f = semis(m.root * 4, note(deg + pattern[s % 8]));
+        this.tone('sine', f, f, spb * 2.6, 0.035, { attack: 0.012, dest: this.music, when: t });
       }
-      // Boss pulse bass.
       if (this.bossMode && s % 2 === 0) {
-        this.tone('sawtooth', m.root, m.root * 0.98, spb * 0.9, 0.07, { dest: this.music, when: t });
-        if (s % 8 === 0) this.tone('sine', 90, 40, 0.35, 0.3, { dest: this.music, when: t });
+        this.tone('triangle', m.root, m.root, spb * 0.9, 0.09, { dest: this.music, when: t });
+        if (s % 8 === 0) this.tone('sine', 84, 42, 0.32, 0.22, { dest: this.music, when: t });
       }
       this.nextNote += spb;
       this.step++;
     }
-    // Rare hull creak for atmosphere.
-    if (Math.random() < 0.004) this.creak();
   }
 
   // ---------- sound effects ----------
 
   shoot() {
-    if (!this.canPlay('shoot', 0.05)) return;
-    this.tone('sine', 1300, 420, 0.16, 0.12, { reverb: 0.15 });
-    this.tone('square', 220, 120, 0.06, 0.03);
-  }
-  torpedo() {
-    if (!this.canPlay('torp', 0.1)) return;
-    this.noise(0.5, 0.25, 1800, 300, 2, 'bandpass');
-  }
-  ping() {
-    if (!this.ctx) return;
-    this.tone('sine', 1480, 1470, 1.6, 0.22, { reverb: 0.9, attack: 0.004 });
-    this.tone('sine', 2960, 2950, 0.4, 0.04, { reverb: 0.6 });
+    if (!this.canPlay('shoot', 0.06)) return;
+    this.tone('sine', 920, 480, 0.11, 0.07);
+    this.tone('triangle', 460, 240, 0.08, 0.03);
   }
   pickup(combo: number) {
-    if (!this.canPlay('pickup', 0.03)) return;
+    if (!this.canPlay('pickup', 0.035)) return;
     const scale = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
-    const n = scale[Math.min(combo, scale.length - 1)];
-    const f = semis(660, n);
-    this.tone('sine', f, f * 1.01, 0.25, 0.1, { reverb: 0.3 });
-    this.tone('sine', f * 2, f * 2, 0.12, 0.03);
-  }
-  ammo() {
-    if (!this.canPlay('ammo', 0.05)) return;
-    this.tone('triangle', 420, 840, 0.12, 0.12);
-    this.tone('triangle', 630, 1260, 0.15, 0.08, { when: this.ctx!.currentTime + 0.07 });
+    const f = semis(587, scale[Math.min(combo, scale.length - 1)]);
+    this.tone('sine', f, f, 0.32, 0.085, { reverb: 0.35, attack: 0.004 });
+    this.tone('sine', f * 2.01, f * 2.01, 0.16, 0.022);
   }
   powerup() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    [0, 4, 7, 12].forEach((n, i) => this.tone('sine', semis(440, n), semis(440, n), 0.4, 0.09, { when: t + i * 0.06, reverb: 0.4 }));
+    [0, 4, 7, 12].forEach((n, i) => this.tone('sine', semis(440, n), semis(440, n), 0.45, 0.07, { when: t + i * 0.065, reverb: 0.4 }));
   }
   hit() {
-    if (!this.canPlay('hit', 0.08)) return;
-    this.noise(0.35, 0.5, 2400, 180, 0.8);
-    this.tone('sine', 140, 50, 0.3, 0.35);
+    if (!this.canPlay('hit', 0.1)) return;
+    this.noise(0.28, 0.28, 1200, 140, 0.7);
+    this.tone('sine', 150, 58, 0.34, 0.3);
   }
   shieldHit() {
     if (!this.canPlay('shield', 0.08)) return;
-    this.tone('sine', 900, 1800, 0.2, 0.12, { reverb: 0.5 });
+    this.tone('sine', 880, 1500, 0.22, 0.09, { reverb: 0.5 });
   }
   enemyHit() {
-    if (!this.canPlay('ehit', 0.04)) return;
-    this.tone('square', 300, 150, 0.06, 0.04);
+    if (!this.canPlay('ehit', 0.05)) return;
+    this.tone('triangle', 330, 190, 0.06, 0.04);
   }
   explode(size = 1) {
-    if (!this.canPlay('explode', 0.04)) return;
-    this.noise(0.4 + size * 0.5, 0.35 + size * 0.2, 1600, 60, 0.7, 'lowpass', 0.3);
-    this.tone('sine', 110, 30, 0.4 + size * 0.4, 0.4);
+    if (!this.canPlay('explode', 0.06)) return;
+    this.noise(0.35 + size * 0.4, 0.2 + size * 0.1, 900, 70, 0.6, 'lowpass', 0.25);
+    this.tone('sine', 120, 36, 0.35 + size * 0.3, 0.3);
   }
+  /** Soft whoosh for the dodge roll. */
   dash() {
     if (!this.ctx) return;
-    this.noise(0.45, 0.35, 400, 3000, 3, 'bandpass');
+    this.noise(0.36, 0.2, 500, 2400, 2.2, 'bandpass');
+    this.tone('sine', 300, 620, 0.2, 0.04);
   }
   flare() {
     if (!this.ctx) return;
-    this.noise(1.6, 0.4, 6000, 200, 0.5, 'lowpass', 0.8);
-    this.tone('sine', 220, 880, 0.8, 0.15, { reverb: 0.8 });
+    this.noise(1.4, 0.26, 3600, 220, 0.5, 'lowpass', 0.7);
+    this.tone('sine', 220, 880, 0.8, 0.12, { reverb: 0.8 });
   }
   bossRoar() {
     if (!this.ctx) return;
-    for (let i = 0; i < 3; i++) this.tone('sawtooth', 70 + i * 3, 38, 2.2, 0.12, { attack: 0.3, reverb: 0.6, detune: i * 12 });
-    this.noise(2, 0.2, 500, 80, 1, 'lowpass', 0.5);
+    for (let i = 0; i < 3; i++) this.tone('triangle', 74 + i * 3, 40, 2, 0.11, { attack: 0.3, reverb: 0.6, detune: i * 10 });
+    this.noise(1.8, 0.12, 420, 80, 1, 'lowpass', 0.5);
   }
   bossCharge() {
     if (!this.canPlay('bcharge', 0.3)) return;
-    this.tone('sawtooth', 60, 240, 0.9, 0.08, { attack: 0.6 });
+    this.tone('triangle', 70, 260, 0.9, 0.09, { attack: 0.6 });
   }
   alarm() {
-    if (!this.canPlay('alarm', 0.9)) return;
-    this.tone('square', 880, 880, 0.12, 0.05);
-    this.tone('square', 660, 660, 0.12, 0.05, { when: this.ctx!.currentTime + 0.15 });
-  }
-  creak() {
-    if (!this.ctx) return;
-    this.tone('sawtooth', 70 + Math.random() * 40, 50, 1.2, 0.03, { attack: 0.4, reverb: 0.7 });
+    if (!this.canPlay('alarm', 1.2)) return;
+    this.tone('sine', 740, 740, 0.14, 0.05);
+    this.tone('sine', 554, 554, 0.16, 0.05, { when: this.ctx!.currentTime + 0.17 });
   }
   zoneEnter() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    [0, 7, 12, 19].forEach((n, i) => this.tone('sine', semis(this.mood.root * 4, n), semis(this.mood.root * 4, n), 1.6, 0.06, { when: t + i * 0.12, reverb: 0.9, attack: 0.05 }));
+    [0, 7, 12, 19].forEach((n, i) => this.tone('sine', semis(this.mood.root * 4, n), semis(this.mood.root * 4, n), 1.6, 0.05, { when: t + i * 0.12, reverb: 0.9, attack: 0.05 }));
   }
   death() {
     if (!this.ctx) return;
-    this.noise(2.5, 0.5, 900, 40, 0.5, 'lowpass', 0.8);
-    this.tone('sine', 220, 30, 2.5, 0.25, { reverb: 0.8 });
-  }
-  surface() {
-    if (!this.ctx) return;
-    this.noise(1.8, 0.6, 8000, 400, 0.3, 'highpass', 0.4);
-    const t = this.ctx.currentTime;
-    [0, 4, 7, 11, 14].forEach((n, i) => this.tone('triangle', semis(523, n), semis(523, n), 2.4, 0.06, { when: t + 0.4 + i * 0.1, reverb: 0.9 }));
-  }
-  launch() {
-    if (!this.ctx) return;
-    this.noise(1.4, 0.55, 300, 4000, 1.5, 'bandpass', 0.4);
-    this.tone('sine', 60, 30, 1.2, 0.5);
+    this.noise(2.2, 0.3, 700, 40, 0.5, 'lowpass', 0.8);
+    this.tone('sine', 220, 32, 2.4, 0.2, { reverb: 0.8 });
   }
   pageFlip() {
     if (!this.ctx) return;
-    this.noise(0.35, 0.25, 4000, 900, 0.7, 'bandpass', 0.2);
+    this.noise(0.35, 0.2, 3200, 900, 0.7, 'bandpass', 0.2);
   }
   tear() {
     if (!this.ctx) return;
-    for (let i = 0; i < 6; i++) setTimeout(() => this.noise(0.12, 0.2, 2600, 1200, 1.4, 'bandpass'), i * 45);
+    for (let i = 0; i < 6; i++) setTimeout(() => this.noise(0.12, 0.16, 2600, 1200, 1.4, 'bandpass'), i * 45);
   }
   chime() {
     if (!this.ctx) return;
@@ -400,12 +426,12 @@ export class AudioEngine {
     this.ambFilter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 1.2);
   }
   uiHover() {
-    if (!this.canPlay('uih', 0.04)) return;
-    this.tone('sine', 1800, 1800, 0.04, 0.025);
+    if (!this.canPlay('uih', 0.05)) return;
+    this.tone('sine', 1500, 1500, 0.04, 0.018);
   }
   uiClick() {
     if (!this.ctx) return;
-    this.tone('sine', 1200, 600, 0.09, 0.08, { reverb: 0.2 });
+    this.tone('sine', 880, 587, 0.1, 0.06, { reverb: 0.2 });
   }
 
   dispose() {

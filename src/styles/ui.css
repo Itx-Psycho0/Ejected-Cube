@@ -14,8 +14,7 @@
   color: var(--ink);
 }
 .screen.veil {
-  background: color-mix(in srgb, var(--bg) 62%, transparent);
-  backdrop-filter: blur(8px) saturate(1.05);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
 }
 .enter > * {
   animation: rise 0.55s var(--ease) both;
@@ -95,7 +94,6 @@ h3 {
     border-radius 0.6s;
 }
 [data-panel='glass'] .panel {
-  backdrop-filter: blur(14px) saturate(1.2);
 }
 [data-panel='paper'] .panel {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -339,7 +337,6 @@ kbd {
   padding: 16px;
 }
 [data-panel='glass'] .card {
-  backdrop-filter: blur(14px);
 }
 [data-panel='chunky'] .card {
   border-color: var(--ink);
@@ -892,11 +889,11 @@ table.records th {
   border-radius: 6px;
   transition: width 0.15s;
 }
-.meter.hull i {
-  background: var(--accent2);
+.meter.energy i {
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
 }
-.meter.light i {
-  background: var(--accent);
+.meter.energy .track {
+  height: 12px;
 }
 .meter.warn .track {
   animation: warn 0.7s infinite;
@@ -1085,7 +1082,7 @@ table.records th {
   top: max(90px, calc(env(safe-area-inset-top) + 80px));
   left: 50%;
   transform: translateX(-50%);
-  width: min(460px, 92vw);
+  width: min(400px, 92vw);
   background: var(--panel);
   color: var(--ink);
   text-shadow: none;
@@ -1136,7 +1133,7 @@ table.records th {
 #toasts {
   position: absolute;
   right: max(18px, env(safe-area-inset-right));
-  top: 34%;
+  bottom: 130px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1223,7 +1220,7 @@ table.records th {
   right: max(16px, env(safe-area-inset-right));
   bottom: max(110px, calc(env(safe-area-inset-bottom) + 100px));
   display: grid;
-  grid-template-columns: repeat(2, 64px);
+  grid-template-columns: 72px;
   gap: 12px;
   pointer-events: auto;
 }
@@ -1237,8 +1234,8 @@ table.records th {
   touch-action: none;
 }
 #touch button {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
 }
 #touch button:active {
   background: var(--accent);
@@ -1388,7 +1385,7 @@ table.records th {
     display: none;
   }
   #toasts {
-    top: 118px;
+    bottom: 200px;
     left: 16px;
     right: 16px;
     align-items: center;

@@ -313,11 +313,11 @@ export class Ground {
     const g = this.geo;
     const den = pr.density;
     const rs = g.rockScale ?? 1;
-    place(tile.rockA, 60 * d * den.rocks, -480, -30, 2 * rs, 14 * rs, 0.35, pr.rock);
+    place(tile.rockA, 40 * d * den.rocks, -480, -30, 2 * rs, 14 * rs, 0.35, pr.rock);
     place(tile.rockB, 22 * d * den.rocks, -520, -160, 14 * rs, 48 * rs, 0.4, pr.rock);
-    place(tile.tall, 90 * d * den.tall, -400, -50, g.tallScale[0], g.tallScale[1], 0, pr.tall);
-    tile.cluster.forEach((m) => place(m, 26 * d * den.cluster, -340, -60, g.clusterScale[0], g.clusterScale[1], 0.05, pr.cluster));
-    const n = place(tile.stem, 40 * d * den.small, -340, -40, 0.9, 1.8, 0, [pr.small[0]]);
+    place(tile.tall, 60 * d * den.tall, -400, -50, g.tallScale[0], g.tallScale[1], 0, pr.tall);
+    tile.cluster.forEach((m) => place(m, 17 * d * den.cluster, -340, -60, g.clusterScale[0], g.clusterScale[1], 0.05, pr.cluster));
+    const n = place(tile.stem, 28 * d * den.small, -340, -40, 0.9, 1.8, 0, [pr.small[0]]);
     for (let k = 0; k < n; k++) {
       tile.stem.getMatrixAt(k, m4);
       tile.head.setMatrixAt(k, m4);

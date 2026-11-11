@@ -10,13 +10,19 @@ The Atlas is a book where every page is a whole world. A drop of ink, the Blot, 
 
 </div>
 
-## Ten worlds, picked at random
+## Eleven worlds, picked at random
 
-Every run starts on a random world, and every new level turns the page to another one. The whole game re-skins each time: landscape, props, wildlife, particles, lighting, materials, post-processing, music and the interface itself.
+Every run starts on a random world, and every new level turns the page to another one. The whole game re-skins each time: landscape, props, wildlife, lighting, materials, post-processing, music and the interface. So does everything you play with. Each world belongs to a family (water, sky or space) that decides your **craft**, the **creatures**, the **pickups** and the **boss**.
+
+| Family | Your craft | Pickups | Creatures | Bosses |
+|---|---|---|---|---|
+| Water | Escape capsule | Plankton, supply crates | Urchins, jellyfish, naval mines, lanternfish, pufferfish | Thermal Warden, The Lantern, The Chain, Kraken, Leviathan |
+| Sky | Propeller fighter | Coins, hearts | Storm puffs, hot-air balloons, barrage balloons, darts, pop balloons, hail | Thunderhead, Ironclad Airship, Kite Dragon |
+| Space | Starship | Crystals, power cells | Spiked mines, saucer drones, tether beacons, seekers, reactor pods, asteroids | Sentinel Core, Dreadnought, Star Wyrm |
 
 | World | Look |
 |---|---|
-| **Abyssal Trench** | Deep sea: realistic lighting, kelp, vents, whale silhouette. The dark hides creatures |
+| **Deep Reef** | Underwater: caustics, light shafts, kelp, vents, a whale silhouette |
 | **Paper Sky** | Folded paper hills, cut-out clouds, windmills, paper grain and ink outlines |
 | **Clean Room** | A white laboratory: tiled floor, pylons with signal-orange strips, lab drones |
 | **Sketchbook** | Pencil line art: cross-hatching drawn by a screen-space shader |
@@ -26,6 +32,7 @@ Every run starts on a random world, and every new level turns the page to anothe
 | **Ink Mountains** | Sumi-e ink wash on rice paper; only vermilion keeps its colour |
 | **Red Mesa** | Sunset desert, saguaro cacti, blowing sand |
 | **Glacier Light** | Polar night with an animated aurora, ice crystals, snowfall |
+| **Low Orbit** | Grey moon dust under a star field and nebula; dishes and habitats |
 
 | | |
 |---|---|
@@ -33,14 +40,15 @@ Every run starts on a random world, and every new level turns the page to anothe
 | ![Sketchbook](docs/screenshots/04-sketchbook.jpg) | ![Summer Sky](docs/screenshots/05-summer-sky.jpg) |
 | ![Ink Mountains](docs/screenshots/06-ink-mountains.jpg) | ![Abyssal Trench](docs/screenshots/07-abyssal-trench.jpg) |
 | ![Red Mesa](docs/screenshots/08-red-mesa.jpg) | ![Brick Town](docs/screenshots/09-brick-town.jpg) |
-| ![The Lantern in the Sketchbook](docs/screenshots/10-boss-lantern-sketch.jpg) | ![Hangar](docs/screenshots/11-hangar.jpg) |
+| ![Thunderhead boss](docs/screenshots/13-boss-thunderhead.jpg) | ![Sentinel Core boss](docs/screenshots/14-boss-sentinel-core.jpg) |
+| ![Low Orbit](docs/screenshots/15-low-orbit.jpg) | ![Hangar](docs/screenshots/11-hangar.jpg) |
 
 In Settings → Worlds you can choose which worlds are in the rotation, lock the game to one favourite, or keep the interface on one look.
 
 ## The journey
 
 - **Story:** an animated paper cut-out storybook plays on the first visit and can be replayed from the home screen. It ends by tearing in half to reveal the game.
-- **Levels:** numbered levels with a boss every third level. Difficulty rises in a sawtooth curve: each level gets busier toward its gate, and the level after a boss starts a little easier. Enemy health, damage, bullet speed, scroll speed, currents and new creature types all ramp up.
+- **Levels:** numbered levels with a boss every third level. Level 1 is a gentle warm-up. From there, spawn rate, enemy health and damage, bullet speed, scroll speed and energy burn all rise each level, new creature types join at levels 2, 3, 5 and 7, and the level after a boss eases off slightly.
 - **Checkpoints:** after each boss you can start later runs from that level (Journey map).
 - **Ending:** beating the fifth boss at level 15 plays the story's ending. Then the pages beyond fifteen continue with stronger bosses.
 - **Difficulty:** Relaxed, Normal and Hard presets.
@@ -48,36 +56,35 @@ In Settings → Worlds you can choose which worlds are in the rotation, lock the
 
 ## Playing
 
-- **Light** fades all the time; collect glowing sparks to keep it up. Chained sparks build a combo.
-- **Hull** is your health; repair kits restore it.
-- **Pulse** reveals hidden creatures and **shards** (the currency), and stuns some creatures.
-- **Dash** gives brief invulnerability and rams through small creatures.
-- **Bioflare:** fill the flare ring with combos, then clear the screen.
-- **Power-ups:** shield, spark magnet, triple bolt and seekers.
-- **Six creature types** and **five bosses** with telegraphed attacks and second phases.
+The controls are deliberately small:
 
-| Action | Keyboard / mouse | Touch |
+| Action | Mouse / keyboard | Touch |
 |---|---|---|
-| Steer | Mouse, or WASD / arrows | Drag anywhere |
+| Fly | Move the mouse: the craft glides to the pointer, pitching and banking as it goes | Drag anywhere |
 | Fire | Hold left click or Space | Automatic |
-| Pulse | Right click or E | PULSE |
-| Dash | Shift | DASH |
-| Bioflare | Q | FLARE |
+| Dodge | Shift or right click: a fast barrel roll up or down, toward the pointer. Nothing can hit you during it, and it rams small creatures | DODGE |
+| Flare | Q, when the ring is full: clears the screen | FLARE |
 | Pause | Esc / P | Pause button |
 
-The first run starts with a five-step **interactive tutorial** (fly, fire, dash, pulse, flare). On the first visit, a short **guided tour** points out the home screen. Both can be replayed.
+- **One bar: Energy.** Flying burns it slowly and hits take a chunk. Pickups give it back.
+- **Chain pickups** for a combo; combos fill the flare ring faster.
+- **Power-ups:** shield, magnet and triple shot.
+- **Boss fights hold the screen still.** Red lanes mark where the next attack will land; each boss has its own patterns and a second phase.
+- **Shards** are the currency: collect them in levels, from bosses and from missions.
+
+The first run starts with a four-step **interactive tutorial** (fly, fire, dodge, flare). Targets keep respawning until you finish each step. On the first visit, a short **guided tour** points out the home screen. Both can be replayed.
 
 ## Make it yours
 
 The **Hangar** has a live 3D preview:
 - 12 hull colours, 6 accents and 7 patterns (hazard band, stripe, checker, panels, splotch, polka)
 - A call sign painted on the hull
-- Three hull shapes, floodlight colours, five engine trails and an optional roll cage
-- Seven upgrade tracks (hull, light reserve, damage, fire rate, dash, magnet, flare charge)
+- Engine trails, floodlight colours, and capsule extras (three hull shapes, optional roll cage). Paint and call sign carry over to the fighter and the starship
+- Seven upgrade tracks (max energy, energy burn, damage, fire rate, dodge recharge, magnet, flare charge)
 
 Shards come from hidden pickups, bosses and **missions**. There are always three active, they carry over between runs, and they get harder each time you complete one.
 
-The **Logbook** has 17 achievements, the worlds you've visited, your top-10 runs and lifetime stats.
+The **Logbook** has 16 achievements, the worlds you've visited, your top-10 runs and lifetime stats.
 
 ## Tech stack
 
@@ -100,9 +107,11 @@ Runtime dependencies: `three` and `postprocessing` (plus font files).
 - Object pools for every enemy, pickup and projectile: no allocations during play
 - Instanced rendering for props, wildlife, clouds, sparks, bullets and boss limbs
 - GPU particles animated entirely in the vertex shader
+- Dynamic resolution: when frames slow down the render scale drops a step, and it creeps back up when there is headroom
+- No CSS blur over the 3D canvas
 - World swaps happen behind the page-turn transition, with shaders compiled while the screen is covered
 - Constant light count, so shaders never recompile mid-fight
-- Quality presets, plus an automatic governor that steps quality down when the frame rate drops
+- Three quality presets as a fallback below the lowest render scale
 - HUD that only touches the DOM when a value changes
 
 ## Getting started

@@ -52,6 +52,7 @@ export class Renderer {
   };
   private target: Record<Num, number> = { ...this.fx };
   private chromaticBase = 1;
+  private renderScale = 1;
   /** 0..1 chromatic aberration pulse, decays every frame. */
   aberration = 0;
 
@@ -76,12 +77,8 @@ export class Renderer {
     this.resize();
   }
 
+  /** Built once. Rebuilding passes mid-game caused black frames, so quality changes only adjust settings. */
   private buildEffects() {
-    for (const p of [this.passA, this.passB]) {
-      if (!p) continue;
-      this.composer.removePass(p);
-      p.dispose();
-    }
     const p = this.preset;
     this.bloom = new BloomEffect({
       intensity: this.fx.bloom,
@@ -95,19 +92,24 @@ export class Renderer {
     this.vignette = new VignetteEffect({ offset: 0.32, darkness: this.fx.vignette });
     this.noise = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: false });
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-    const a = [this.bloom, ...(p.chromatic ? [this.chromatic] : []), tone];
-    this.passA = new EffectPass(this.camera, ...a);
+    this.passA = new EffectPass(this.camera, this.bloom, this.chromatic, tone);
     this.passB = new EffectPass(this.camera, this.stylize, this.vignette, this.noise);
     this.composer.addPass(this.passA);
     this.composer.addPass(this.passB);
   }
 
   applyQuality(preset: QualityPreset) {
-    const msaaChanged = preset.msaa !== this.preset.msaa;
+    if (preset.msaa !== this.preset.msaa) this.composer.multisampling = preset.msaa;
     this.preset = preset;
-    if (msaaChanged) this.composer.multisampling = preset.msaa;
     this.gl.shadowMap.enabled = preset.shadows;
-    this.buildEffects();
+    this.bloom.resolution.scale = preset.bloomScale;
+    this.resize();
+  }
+
+  /** Dynamic resolution: 0.55..1 of the preset's pixel ratio. */
+  setRenderScale(scale: number) {
+    if (Math.abs(scale - this.renderScale) < 0.01) return;
+    this.renderScale = scale;
     this.resize();
   }
 
@@ -123,7 +125,7 @@ export class Renderer {
   resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const pr = Math.min(window.devicePixelRatio || 1, this.preset.maxPixelRatio);
+    const pr = Math.min(window.devicePixelRatio || 1, this.preset.maxPixelRatio) * this.renderScale;
     this.gl.setPixelRatio(pr);
     this.gl.setSize(w, h, false);
     this.composer.setSize(w, h, false);
@@ -150,7 +152,7 @@ export class Renderer {
     s.set('uPosterize', f.posterize > 0.5 ? f.posterize : 0);
 
     this.aberration = Math.max(0, this.aberration - dt * 2.2);
-    const a = 0.0006 * this.chromaticBase + this.aberration * 0.006;
+    const a = this.preset.chromatic ? 0.0006 * this.chromaticBase + this.aberration * 0.004 : 0;
     this.caOffset.set(a, a * 0.6);
     this.gl.info.reset();
     this.composer.render(dt);

@@ -14,7 +14,7 @@ export class Lantern extends Boss {
   private charging = false;
 
   constructor(difficulty: number) {
-    super(140, difficulty);
+    super(130, difficulty);
     this.bulbMat = glowMaterial(0xffe08a, 6);
     this.registerGlow(this.bulbMat);
     this.build();
@@ -109,7 +109,7 @@ export class Lantern extends Boss {
       this.bulbMat.emissiveIntensity = 14;
       yield 0.12;
     }
-    ctx.darken(0.82, 3.4);
+    ctx.darken(0.3, 2.4);
     ctx.sfx('roar');
     const n = this.phase2 ? 5 : 3;
     for (let i = 0; i < n; i++) ctx.spawnEnemy('lanternfish', ctx.bounds.x + 30 + i * 20, (Math.random() - 0.5) * ctx.bounds.y * 1.2);
