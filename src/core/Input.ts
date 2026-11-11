@@ -21,8 +21,8 @@ const KEY_ACTIONS: Record<string, Action> = {
 export class Input {
   readonly aim = new Vector2(0, 0);
   device: Device = 'pointer';
-  /** Fire continuously without holding anything (setting, on by default). */
-  autoFire = true;
+  /** Kept for old saves; firing always needs input now. */
+  autoFire = false;
   /** Last mouse button bitmask, to catch chorded presses the browser reports as moves. */
   private buttons = 0;
   private held = new Set<Action>();
@@ -130,7 +130,9 @@ export class Input {
 
   isHeld(a: Action) {
     if (!this.enabled) return false;
-    if (a === 'fire' && (this.autoFire || this.device === 'touch')) return true;
+    // Touch fires while a finger is steering; lift it and the laser stops.
+    // With a mouse you hold left click or Space. Nothing fires by itself.
+    if (a === 'fire' && this.device === 'touch') return this.touchId !== null;
     return this.held.has(a);
   }
 

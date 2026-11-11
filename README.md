@@ -84,7 +84,7 @@ The controls are deliberately small:
 | Action | Mouse / keyboard | Touch |
 |---|---|---|
 | Fly | Move the mouse: the craft glides to the pointer, pitching and banking as it goes | Drag anywhere |
-| Fire | Automatic: the laser fires on its own during play (turn Auto-fire off in Settings to fire with left click or Space). It holds fire during boss warnings, title cards and page turns | Automatic |
+| Fire | Hold left click or Space (about 7 shots a second). It holds fire during boss warnings, title cards and page turns | Fires while your finger is on the screen |
 | Dodge | Shift or right click: a fast barrel roll up or down, toward the pointer. Nothing can hit you during it, and it rams small creatures | DODGE |
 | Flare | Q, when the ring is full: clears the screen | FLARE |
 | Pause | Esc / P | Pause button |
@@ -93,7 +93,15 @@ On phones the game runs in landscape and goes fullscreen when you start. Hold th
 
 ![Phone, landscape](docs/screenshots/12-mobile.jpg)
 
-- **Energy.** Flying burns it slowly and hits take a chunk. Pickups give it back.
+- **Nothing plays itself.** You only fire while holding the button (or touching the screen), and the world fights back:
+  - Creatures fire aimed shots at where you are, and many come straight down your line.
+  - Every boss adds aimed volleys to its own patterns.
+  - Energy burns steadily, so you have to fly for pickups.
+
+  A craft left alone dies in level 1.
+- **Each level has a quota.** The page only turns when you have flown the distance *and* destroyed enough creatures (shown next to the level name, for example `7/12`). Boss levels end with the boss.
+- **Energy.** Flying burns it and hits take a chunk. Pickups give it back.
+- **Pickups don't come to you** unless a magnet is active. The magnet power-up pulls everything in; the Magnet upgrade pulls the common pickups only.
 - **Laser charge.** Every shot uses a little (a full charge is about 13 seconds of fire). Below a third the beam fades: thinner, dimmer and slower. At zero it stops.
   - Fly into a glowing **laser cell** to refill it. One arrives as soon as you run low, and if you miss it another follows a moment later.
   - Cells also turn up now and then while the laser isn't full.
@@ -151,7 +159,6 @@ Runtime dependencies: `three` and `postprocessing` (plus font files).
   - A sanitize pass clamps the HDR buffer before bloom, so a stray Inf or NaN pixel can't be blurred across the whole screen.
   - Flash lights and mirror-like materials are capped so highlights stay in half-float range.
   - Canvas resizes (phone address bar, fullscreen) happen right before a render instead of between frames.
-  - The page turn between levels is always a light paper page. Dark worlds used to slide a near-black sheet across the whole screen.
   - Lost GPU contexts pause the game and recover. A zero-size viewport or a broken camera can no longer blank a frame.
 - Object pools for every enemy, pickup and projectile: no allocations during play
 - Instanced rendering for props, wildlife, clouds, sparks, bullets and boss limbs

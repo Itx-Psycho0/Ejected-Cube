@@ -61,6 +61,10 @@ Each boss extends `Boss` and lists generator functions that `yield` seconds to w
 
 `Settings.progress` is `checkpoint` or `classic`. In Checkpoint mode `SaveData.resumeLevel` is written every time a level starts, so Continue, the death screen's Retry and Restart all use the level you reached. In Classic mode they always start at level 1, and `classicBest` keeps the furthest level. `Game.noteProgress()` is the single place that writes either.
 
+## Engagement rules
+
+A level ends only when `levelTime >= duration` and `levelKills >= quota` (`Game.levelProgress()` is the smaller of the two fractions). `EnemyContext.aimRate` makes every creature ahead of the player fire aimed shots, and `hunt` is the share of spawns placed on the player's current line. Bosses add an aimed fan every couple of seconds on top of their scripts. Fire needs input: held button or Space, or a finger down on touch (`Input.isHeld`). Pickups are pulled only by a magnet (`Pickups.update(magnetAll, sparkMagnet)`).
+
 ## Laser charge
 
 `Player.laser` (0..1) drops by `1/LASER_SHOTS` per shot in `Game.handleAbilities`. Below `LASER_LOW` the fire rate and the beam's `power` (thickness, length, brightness in `Projectiles`) scale down. Firing only happens in `play` mode, or in `boss` mode once the boss is in its `fight` state. `Game.directLaserCells` spawns a `laser` pickup when the charge is low, again shortly after `Pickups.missed.laser` reports one scrolled away, and sometimes at random.

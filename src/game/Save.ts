@@ -77,6 +77,8 @@ export interface SaveData {
   worldsSeen: ThemeId[];
   /** Bumped when new worlds are added, so they join existing rotation pools. */
   worldsVersion: number;
+  /** Bumped when control defaults change. */
+  controlsVersion: number;
   storySeen: boolean;
   tutorialDone: boolean;
   coachDone: boolean;
@@ -101,7 +103,8 @@ export const DEFAULT_SETTINGS: Settings = {
   hudScale: 1,
   control: 'follow',
   voice: 0.9,
-  autoFire: true,
+  // Off by default: hold to fire with a mouse, keep a finger down on touch.
+  autoFire: false,
   progress: 'checkpoint',
   musicStyle: 'fast',
 };
@@ -126,6 +129,7 @@ function fresh(): SaveData {
     loadout: { ...DEFAULT_LOADOUT },
     worldsSeen: [],
     worldsVersion: 3,
+    controlsVersion: 2,
     storySeen: false,
     tutorialDone: false,
     coachDone: false,
@@ -160,6 +164,11 @@ export class Save {
         loadout: { ...f.loadout, ...p.loadout },
         missions: p.missions?.length === 3 ? p.missions : f.missions,
       };
+      // Auto-fire let a mouse player win without touching anything: hold to fire again.
+      if ((p.controlsVersion ?? 1) < 2) {
+        this.data.settings.autoFire = DEFAULT_SETTINGS.autoFire;
+        this.data.controlsVersion = 2;
+      }
       // Older saves only had boss checkpoints: continue from the furthest level instead.
       if (p.resumeLevel === undefined) this.data.resumeLevel = Math.max(1, this.data.highestLevel);
       if (!this.data.settings.themePool?.length) this.data.settings.themePool = [...THEME_IDS];

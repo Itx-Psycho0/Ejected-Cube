@@ -1910,13 +1910,3 @@ table.records th {
     opacity: 0.25;
   }
 }
-
-/* Accent band down the page edge of the paper page turn. */
-#page .page-band {
-  position: absolute;
-  right: 6%;
-  top: 0;
-  bottom: 0;
-  width: 10px;
-  opacity: 0.85;
-}

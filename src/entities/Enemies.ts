@@ -41,6 +41,8 @@ export interface Enemy {
   /** Ink-stained: tougher, drips ink, drops a shard. */
   elite: boolean;
   grazed: boolean;
+  /** Seconds until this creature fires its next aimed shot. */
+  shotCd: number;
 }
 
 interface Spec {
@@ -71,6 +73,10 @@ export interface EnemyContext {
   onContact: (e: Enemy) => void;
   onExplosion: (x: number, y: number, radius: number, damage: number) => void;
   onKill: (e: Enemy, byPlayer: boolean) => void;
+  /** Aimed shots per creature per second (0 = none). Sitting still gets you hit. */
+  aimRate: number;
+  /** Share of spawns that come in on the player's current line (0..1). */
+  hunt: number;
 }
 
 
@@ -138,6 +144,7 @@ export class Enemies {
           scale: 1,
           elite: false,
           grazed: false,
+          shotCd: 0,
         });
       }
     }
@@ -161,6 +168,8 @@ export class Enemies {
     e.vel.set(0, 0);
     e.elite = elite;
     e.grazed = false;
+    // First aimed shot comes a moment after it appears, never on the spawn frame.
+    e.shotCd = 1.2 + this.rnd.next() * 1.6;
     e.maxHp = e.hp = Math.ceil(spec.hp * hpMult * (elite ? 2.5 : 1));
     e.score = spec.score * (elite ? 2 : 1);
     const aura = e.visual.root.getObjectByName('aura');
@@ -214,8 +223,12 @@ export class Enemies {
         case 'debris':
           this.spawn('debris', this.rnd.range(0, b.x + 60), b.y + 40, hp, elite);
           break;
-        default:
-          this.spawn(kind, x, this.rnd.range(-b.y * 0.7, b.y * 0.75), hp, elite);
+        default: {
+          // Hunters come straight down your line: staying put means meeting them.
+          const hunt = this.rnd.chance(ctx.hunt);
+          const y = hunt ? clamp(ctx.player.pos.y + this.rnd.range(-12, 12), -b.y * 0.8, b.y * 0.8) : this.rnd.range(-b.y * 0.7, b.y * 0.75);
+          this.spawn(kind, x, y, hp, elite);
+        }
       }
     }
   }
@@ -362,6 +375,21 @@ export class Enemies {
           break;
       }
 
+      // Aimed fire: creatures ahead of the player shoot where it is now.
+      if (ctx.aimRate > 0 && e.kind !== 'debris' && e.kind !== 'mine' && p.alive) {
+        e.shotCd -= dt;
+        const ahead = e.pos.x - p.pos.x;
+        if (e.shotCd <= 0) {
+          e.shotCd = (0.75 + this.rnd.next() * 0.5) / ctx.aimRate;
+          if (ahead > 70 && e.pos.x < b.x * 0.95 && e.stunned <= 0) {
+            const dx = p.pos.x - e.pos.x;
+            const dy = p.pos.y - e.pos.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const sp = 150 * ctx.difficulty;
+            this.projectiles.spawnBullet(e.elite ? 'ink' : 'orb', e.pos.x - e.radius, e.pos.y, (dx / d) * sp, (dy / d) * sp, { radius: 2.8, damage: 9 });
+          }
+        }
+      }
       e.pos.addScaledVector(e.vel, dt);
       r.position.set(e.pos.x, e.pos.y, 0);
       // Ease in from nothing so spawns never pop.

@@ -32,8 +32,8 @@ export interface Shot {
   index: number;
 }
 
-/** Visual length of a laser bolt; at the fire rate the stream reads as one beam. */
-const BOLT_LEN = 58;
+/** Visual length of a laser bolt. */
+const BOLT_LEN = 30;
 
 /** Squared distance from point (px, py) to segment a-b. */
 export function segDist2(ax: number, ay: number, bx: number, by: number, px: number, py: number) {

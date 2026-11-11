@@ -62,6 +62,9 @@ interface Run {
   tauntDone: boolean;
   grazes: number;
   /** Ink surge: seconds left (0 = none), whether this level had one, when it hits. */
+  /** Creatures destroyed this level, toward its quota. */
+  levelKills: number;
+  quotaNag: number;
   surge: number;
   surgeDone: boolean;
   surgeAt: number;
@@ -82,9 +85,9 @@ const VILLAIN_LINES = [
   'Your light is getting smaller, little cube.',
   'Come, then. Come to the last page.',
 ];
-const FIRE_SPEED = 1050;
-/** Shots in a full laser charge (about 13 seconds of fire). */
-const LASER_SHOTS = 160;
+const FIRE_SPEED = 800;
+/** Shots in a full laser charge (about 14 seconds of fire). */
+const LASER_SHOTS = 100;
 /** Below this charge the beam starts to fade: thinner, dimmer and slower. */
 const LASER_LOW = 0.35;
 
@@ -254,6 +257,8 @@ export class Game {
       onContact: (e) => this.hurt(e.contactDamage * (this.run?.def.enemyDamage ?? 1)),
       onExplosion: (x, y, r, dmg) => this.explosion(x, y, r, dmg),
       onKill: (e, by) => this.onEnemyKilled(e, by),
+      aimRate: 0,
+      hunt: 0,
     };
     this.bossCtx = {
       player: this.player,
@@ -452,7 +457,7 @@ export class Game {
     this.save.data.settings = s;
     this.save.write();
     audio.setVolumes(s.master, s.music, s.sfx, s.voice ?? 0.9);
-    this.input.autoFire = s.autoFire !== false;
+    this.input.autoFire = false;
     audio.setStyle(s.musicStyle ?? 'fast');
     this.rig.shakeScale = s.shake && !s.reducedMotion ? 1 : 0;
     this.ui.showFps(s.showFps);
@@ -610,6 +615,8 @@ export class Game {
           eyeAt: 0.3 + Math.random() * 0.4,
           tauntDone: false,
           grazes: 0,
+          levelKills: 0,
+          quotaNag: 0,
           surge: 0,
           surgeDone: false,
           surgeAt: 0.4 + Math.random() * 0.25,
@@ -774,7 +781,7 @@ export class Game {
         const t = this.theme;
         this.ui.levelSlam(def.n, t.name, def.bossSlot >= 0);
         audio.slam();
-        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. Your laser fires on its own.' : this.input.autoFire ? 'Move the mouse to fly. Your laser fires on its own.' : 'Move the mouse to fly. Hold left click or Space to fire.', 5);
+        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. The laser fires while your finger is down.' : 'Move the mouse to fly. Hold left click or Space to fire.', 5);
       }
     }
   }
@@ -802,7 +809,16 @@ export class Game {
       run.levelTime += dt;
       if (run.levelTime >= def.duration) {
         if (def.bossSlot >= 0) this.startBoss();
-        else this.levelComplete();
+        else if (run.levelKills >= def.quota) this.levelComplete();
+        else {
+          // The page only turns once you've fought for it.
+          run.quotaNag -= dt;
+          if (run.quotaNag <= 0) {
+            run.quotaNag = 6;
+            const left = def.quota - run.levelKills;
+            this.ui.hint(`Destroy ${left} more creature${left === 1 ? '' : 's'} to turn the page.`, 3.5);
+          }
+        }
       }
     }
 
@@ -817,8 +833,10 @@ export class Game {
     this.enemyCtx.scrollSpeed = inBoss ? BASE_SPEED * 0.5 : this.scrollSpeed;
     this.enemyCtx.darkness = 0;
     this.enemyCtx.difficulty = def.bulletSpeed;
-    const progress = clamp(run.levelTime / def.duration, 0, 1);
-    this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.96, diff.spawn * (run.surge > 0 ? 2.3 : 1));
+    const progress = this.levelProgress();
+    this.enemyCtx.aimRate = !inBoss && !transition && !tut && this.mode === 'play' ? def.aimRate : 0;
+    this.enemyCtx.hunt = tut ? 0 : def.hunt;
+    this.enemies.direct(dt, def, Math.min(1, run.levelTime / def.duration), this.enemyCtx, !inBoss && !transition && !tut && (progress < 0.96 || run.levelKills < def.quota), diff.spawn * (run.surge > 0 ? 2.3 : 1));
     this.gates.direct(dt, run.level, this.bounds, !inBoss && !transition && !tut && progress < 0.9);
     this.gates.update(
       dt,
@@ -1023,6 +1041,22 @@ export class Game {
     if (this.boss) {
       this.boss.update(dt, this.bossCtx);
       this.ui.bossBar(this.boss.name, this.run.boss?.title ?? '', this.boss.hp / this.boss.maxHp);
+      // On top of its own patterns, every boss fires aimed volleys at where you
+      // are, so the fight can't be won by parking in one spot.
+      if (p.alive && this.boss.state === 'fight') {
+        this.bossAim -= dt;
+        if (this.bossAim <= 0) {
+          const slot = Math.max(0, this.run.def.bossSlot);
+          this.bossAim = (2.6 - slot * 0.18) * (this.boss.phase2 ? 0.7 : 1);
+          const hb = this.boss.hitboxes[0];
+          if (hb) {
+            const sx = hb.x - hb.r * 0.6;
+            const n = this.boss.phase2 ? 5 : 3;
+            this.projectiles.fan('orb', sx, hb.y, p.pos.x - sx, p.pos.y - hb.y, n, 0.32, 170 * this.run.def.bulletSpeed, { radius: 3, damage: 11 });
+            audio.enemyHit();
+          }
+        }
+      }
       if (p.alive && this.boss.state === 'fight') {
         for (const hb of this.boss.hitboxes) {
           if (!hb.harmful) continue;
@@ -1060,8 +1094,8 @@ export class Game {
     }
     if (this.ink && this.boss) this.ink.update(dt, this.boss.t, this.boss.hitboxes, this.particles, this.boss.phase2);
 
-    const magnet = Math.max(p.powerups.magnet > 0 ? 170 : 0, p.stats.magnetRadius);
-    this.pickups.update(dt, pickupSpeed, this.bounds, p.pos.x, p.pos.y, magnet, p.radius + 8, (it) => this.collect(it));
+    // Only a magnet pulls things in: the power-up pulls everything, the upgrade only the common pickups.
+    this.pickups.update(dt, pickupSpeed, this.bounds, p.pos.x, p.pos.y, p.powerups.magnet > 0 ? 170 : 0, p.stats.magnetRadius, p.radius + 8, (it) => this.collect(it));
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.5);
     this.ui.vignette(this.damageFlash, p.energy < p.stats.maxEnergy * 0.18 && p.alive);
   }
@@ -1114,6 +1148,7 @@ export class Game {
    * away uncollected another follows shortly. Now and then one also turns up
    * at random while the laser isn't full.
    */
+  private bossAim = 3;
   private cellTimer = 0;
   private cellRandom = 20;
   private directLaserCells(dt: number) {
@@ -1200,6 +1235,7 @@ export class Game {
     if (!byPlayer) return;
     const run = this.run;
     run.kills++;
+    run.levelKills++;
     run.tutorialCount++;
     const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (Math.max(1, run.level) - 1) * 0.08) * (run.surge > 0 ? 2 : 1));
     run.score += pts;
@@ -1287,6 +1323,7 @@ export class Game {
   private endWarning?: () => void;
 
   private startBoss() {
+    this.bossAim = 3;
     // Never walk into a boss with an empty laser.
     this.player.laser = Math.max(this.player.laser, 0.5);
     const final = this.run.def.bossSlot === 4;
@@ -1399,6 +1436,14 @@ export class Game {
   }
 
   /** Gate reached: bank progress, turn the page to the next level and world. */
+  /** Level progress: time flown and creatures destroyed both have to be done. */
+  private levelProgress() {
+    const run = this.run;
+    const def = run.def;
+    const time = clamp(run.levelTime / def.duration, 0, 1);
+    return def.bossSlot >= 0 ? time : Math.min(time, clamp(run.levelKills / def.quota, 0, 1));
+  }
+
   /** Remember where the journey is, for Continue (Checkpoints) and the Classic best. */
   private noteProgress(level: number) {
     const run = this.run;
@@ -1429,6 +1474,8 @@ export class Game {
     const next = run.def.bossSlot === 4 ? THEMES.ink : this.pickTheme();
     run.eyeDone = false;
     run.eyeAt = 0.3 + Math.random() * 0.4;
+    run.levelKills = 0;
+    run.quotaNag = 0;
     run.surgeDone = false;
     run.surgeAt = 0.4 + Math.random() * 0.25;
     run.rageShown = false;
@@ -1479,7 +1526,7 @@ export class Game {
     },
     {
       title: 'Fire',
-      text: (t) => (t || this.input.autoFire ? 'Your laser fires on its own. Line up and destroy 3 targets.' : 'Hold left click or Space to fire. Destroy 3 targets.'),
+      text: (t) => (t ? 'Keep your finger on the screen to fire. Line up and destroy 3 targets.' : 'Hold left click or Space to fire. Destroy 3 targets.'),
       setup: (g) => {
         g.run.tutorialCount = 0;
       },
@@ -1613,7 +1660,7 @@ export class Game {
       sparks: run.sparks,
       shards: this.lastBankedShards,
       time: this.lastTime,
-      world: this.theme.name,
+      world: run.def.bossSlot < 0 && run.tutorial < 0 ? `${this.theme.name} · ${Math.min(run.levelKills, run.def.quota)}/${run.def.quota}` : this.theme.name,
       worlds: run.worlds.size,
       newBest: run.score > this.prevBest && run.score > 0,
       daily: run.daily,
@@ -1654,7 +1701,7 @@ export class Game {
       distance: run.distance,
       level: Math.max(1, run.level),
       world: run.tutorial >= 0 ? 'Practice page' : this.theme.name,
-      progress: this.mode === 'boss' ? 1 : clamp(run.levelTime / run.def.duration, 0, 1),
+      progress: this.mode === 'boss' ? 1 : this.levelProgress(),
       energy: p.energy,
       maxEnergy: p.stats.maxEnergy,
       laser: this.run && this.run.tutorial >= 0 ? 1 : p.laser,

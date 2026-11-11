@@ -58,6 +58,12 @@ export interface LevelDef {
   bossSlot: number;
   bossDifficulty: number;
   checkpoint: boolean;
+  /** Aimed shots per creature per second. */
+  aimRate: number;
+  /** Share of creatures that spawn on the player's line. */
+  hunt: number;
+  /** Creatures to destroy before the page turns (normal levels). */
+  quota: number;
 }
 
 export const DIFFICULTY: Record<Difficulty, { damageTaken: number; spawn: number; drain: number; label: string; desc: string }> = {
@@ -101,5 +107,8 @@ export function levelDef(n: number): LevelDef {
     bossSlot: isBoss ? (n / BOSS_EVERY - 1) % 5 : -1,
     bossDifficulty: 0.8 + ((n / BOSS_EVERY - 1) % 5) * 0.1 + cycle * 0.6,
     checkpoint: (n - 1) % BOSS_EVERY === 0,
+    aimRate: Math.min(0.5, 0.24 + t * 0.024),
+    hunt: Math.min(0.55, 0.35 + t * 0.02),
+    quota: Math.round(Math.min(40, 8 + n * 2.2)),
   };
 }

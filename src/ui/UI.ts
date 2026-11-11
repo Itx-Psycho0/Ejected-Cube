@@ -434,11 +434,11 @@ export class UI {
       <div class="grid2">
         <div class="panel"><div class="keys">
           <kbd>Mouse</kbd><span>Your craft glides to the pointer</span>
-          <kbd>Laser</kbd><span>Fires on its own during play (Settings → Gameplay → Auto-fire). With auto-fire off, hold left click or Space</span>
+          <kbd>Left click / Space</kbd><span>Hold to fire the laser</span>
           <kbd>Shift / Right click</kbd><span>Dodge: a fast roll up or down, toward your pointer. Nothing can hit you during it</span>
           <kbd>Q</kbd><span>Flare, when its ring is full: clears the screen</span>
           <kbd>Esc / P</kbd><span>Pause</span>
-          <kbd>Touch</kbd><span>Drag anywhere to steer; DODGE and FLARE buttons on the right. Play in landscape</span>
+          <kbd>Touch</kbd><span>Drag anywhere to steer: the laser fires while your finger is down. DODGE and FLARE on the right. Play in landscape</span>
         </div></div>
         <div class="panel" style="display:flex;flex-direction:column;gap:12px">
           <div class="tip"><i class="dot" style="background:var(--accent)"></i><span><b>One bar: Energy.</b> Flying burns it slowly and hits take a chunk. Pickups give it back.</span></div>
@@ -492,7 +492,6 @@ export class UI {
         <div class="field"><span>Progress<small>${PROGRESS_TEXT[st.progress]}</small></span><span class="chips">${(['checkpoint', 'classic'] as const)
           .map((v) => `<button class="chip-btn" data-prog="${v}" aria-pressed="${st.progress === v}">${v === 'checkpoint' ? 'Checkpoints' : 'Classic'}</button>`)
           .join('')}</span></div>
-        <div class="field"><span>Auto-fire<small>Your laser fires on its own. Turn off to fire with left click or Space.</small></span><button class="toggle" data-k="autoFire" role="switch" aria-checked="${st.autoFire}" aria-label="Auto-fire"></button></div>
         <div class="field">Gameplay hints <button class="toggle" data-k="hints" role="switch" aria-checked="${st.hints}" aria-label="Gameplay hints"></button></div>
         <div class="field">Replay the tutorial <button class="btn" data-a="tutorial" style="padding:7px 12px">Play</button></div>
         <div class="field">Replay the story <button class="btn" data-a="story" style="padding:7px 12px">Watch</button></div>
@@ -820,13 +819,10 @@ export class UI {
   /** A sheet of the next world's paper sweeps across; `mid` runs while the screen is covered. */
   pageTurn(next: ThemeDef, title: string, sub: string, mid: () => void, hold?: () => Promise<unknown>): Promise<void> {
     return new Promise((resolve) => {
-      // Always a light paper page of the Atlas, whatever the world. Dark worlds
-      // used to turn a near-black sheet across the whole screen, which read as
-      // the screen going black between levels.
-      const sheet = h(`<div id="page"><i class="page-band" style="background:${next.ui.accent}"></i><div style="text-align:center;padding:0 24px"><div class="label" style="color:${next.ui.accent}">${esc(sub)}</div>
-        <h2 style="font-family:${next.ui.display};font-weight:${next.ui.titleWeight};color:#2a241e">${esc(title)}</h2>
-        <p style="color:#4a4036;font-family:${next.ui.body}">${esc(next.line)}</p></div></div>`);
-      sheet.style.background = 'linear-gradient(100deg, #f6efe0, #eadfc8)';
+      const sheet = h(`<div id="page"><div style="text-align:center;padding:0 24px"><div class="label" style="color:${next.ui.muted}">${esc(sub)}</div>
+        <h2 style="font-family:${next.ui.display};font-weight:${next.ui.titleWeight};color:${next.ui.ink}">${esc(title)}</h2>
+        <p style="color:${next.ui.ink};font-family:${next.ui.body}">${esc(next.line)}</p></div></div>`);
+      sheet.style.background = `linear-gradient(100deg, ${next.ui.panelSolid}, ${next.ui.bg})`;
       this.root.appendChild(sheet);
       audio.pageFlip();
       const fast = this.save.data.settings.reducedMotion;

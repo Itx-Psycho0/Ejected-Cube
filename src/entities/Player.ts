@@ -17,8 +17,8 @@ export interface PlayerStats {
 
 export const BASE_STATS: PlayerStats = {
   maxEnergy: 100,
-  drain: 0.7,
-  fireRate: 12,
+  drain: 1.6,
+  fireRate: 7,
   damage: 1,
   dodgeCooldown: 0.75,
   magnetRadius: 0,

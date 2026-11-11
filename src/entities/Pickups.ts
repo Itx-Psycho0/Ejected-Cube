@@ -281,13 +281,11 @@ export class Pickups {
     return n;
   }
 
-  update(dt: number, scrollSpeed: number, bounds: Vector2, px: number, py: number, magnetRadius: number, collectRadius: number, onCollect: (p: Pickup) => void) {
+  update(dt: number, scrollSpeed: number, bounds: Vector2, px: number, py: number, magnetAll: number, sparkMagnet: number, collectRadius: number, onCollect: (p: Pickup) => void) {
     const d = this.dummy;
     let n = 0;
     const time = performance.now() * 0.001;
     const look = SPARK_LOOK[this.family];
-    // Everything is drawn in a little when close, so pickups glide into the craft.
-    const pullRadius = Math.max(magnetRadius, collectRadius * 2.4);
     for (const p of this.items) {
       if (!p.active) continue;
       p.age += dt;
@@ -296,6 +294,8 @@ export class Pickups {
       const dx = px - p.pos.x;
       const dy = py - p.pos.y;
       const dist = Math.hypot(dx, dy) || 1;
+      // No pull at all without a magnet: you have to fly to it.
+      const pullRadius = p.kind === 'spark' ? Math.max(magnetAll, sparkMagnet) : magnetAll;
       if (dist < pullRadius) {
         const pull = 420 * (1 - dist / pullRadius) + 140;
         p.vel.x += (dx / dist) * pull;
