@@ -1,4 +1,4 @@
-import type { BossKind } from '../../game/zones';
+import type { BossKind } from '../../game/levels';
 import type { Boss } from './Boss';
 import { Warden } from './Warden';
 import { Lantern } from './Lantern';

@@ -68,15 +68,16 @@ export function patchCaustics(mat: Material, shared: SharedUniforms) {
  * Bends geometry with a travelling sine wave that grows with height,
  * used for kelp, sea fans and tube-worm plumes. Instances get their own phase.
  */
-export function patchSway(mat: Material, uTime: IUniform<number>, amount: number, key: string, also?: SharedUniforms) {
+export function patchSway(mat: Material, uTime: IUniform<number>, amount: IUniform<number>, key: string, also?: SharedUniforms) {
   mat.onBeforeCompile = (s) => {
     s.uniforms.uTime = uTime;
+    s.uniforms.uSway = amount;
     if (also) {
       s.uniforms.uCaustics = also.uCaustics;
       s.uniforms.uSunColor = also.uSunColor;
     }
     s.vertexShader = s.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uSway;')
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -85,7 +86,7 @@ export function patchSway(mat: Material, uTime: IUniform<number>, amount: number
           phase = instanceMatrix[3].x * 0.05 + instanceMatrix[3].z * 0.03;
         #endif
         float hgt = max(0.0, position.y);
-        float bend = pow(hgt * 0.04, 1.5) * ${amount.toFixed(3)};
+        float bend = pow(hgt * 0.04, 1.5) * uSway;
         transformed.x += sin(uTime * 1.1 + phase + hgt * 0.06) * bend;
         transformed.z += cos(uTime * 0.8 + phase * 1.3 + hgt * 0.05) * bend * 0.5;`,
       );

@@ -23,6 +23,8 @@ import {
 } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { getTextures } from '../world/textures';
+import { HullPainter } from './hullPaint';
+import { ACCENT_COLORS, HULL_COLORS, LIGHTS, hexOf, type Loadout } from '../game/cosmetics';
 import { limb, merge } from '../world/geometry';
 
 /**
@@ -47,14 +49,19 @@ export class PodModel {
   readonly exhaustPorts: Object3D[] = [];
   readonly muzzle = new Object3D();
   private t = 0;
+  private painter = new HullPainter();
+  private hull!: Mesh;
+  private cage: Object3D[] = [];
+  private lensMat!: MeshStandardMaterial;
+  private shapeId = 'rounded';
 
   constructor() {
     const tex = getTextures();
     this.root.add(this.body);
 
     this.hullMat = new MeshStandardMaterial({
-      map: tex.hullColor,
-      roughnessMap: tex.hullRough,
+      map: this.painter.map,
+      roughnessMap: this.painter.rough,
       normalMap: tex.hullNormal,
       metalness: 0.45,
       roughness: 1,
@@ -74,6 +81,7 @@ export class PodModel {
     // --- hull ---
     const hull = new Mesh(new RoundedBoxGeometry(16, 13, 13, 4, 2.4), this.hullMat);
     hull.castShadow = hull.receiveShadow = true;
+    this.hull = hull;
     this.body.add(hull);
 
     // --- roll cage along the box edges ---
@@ -97,6 +105,7 @@ export class PodModel {
     const cageMesh = new Mesh(merge(cage), steel);
     cageMesh.castShadow = true;
     this.body.add(cageMesh);
+    this.cage.push(cageMesh);
 
     // Rivets along the cage
     const rivetGeo = new SphereGeometry(0.32, 6, 4);
@@ -112,6 +121,7 @@ export class PodModel {
         }
     rivets.count = ri;
     this.body.add(rivets);
+    this.cage.push(rivets);
 
     // --- viewport (front, +x) ---
     const flange = new Mesh(new TorusGeometry(4.6, 0.9, 10, 28), darkSteel);
@@ -168,6 +178,7 @@ export class PodModel {
 
     // --- floodlights under the front corners ---
     const lensMat = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d8, emissiveIntensity: 6, toneMapped: false });
+    this.lensMat = lensMat;
     for (const z of [-5.4, 5.4]) {
       const housing = new Mesh(new CylinderGeometry(1.6, 1.9, 3.2, 14), darkSteel);
       housing.rotation.z = Math.PI / 2;
@@ -311,6 +322,22 @@ export class PodModel {
     this.root.traverse((o) => {
       if ((o as Mesh).isMesh && o !== this.shield) o.castShadow = true;
     });
+  }
+
+  /** Apply hangar choices: paint, shape, light colour and roll cage. */
+  applyLoadout(l: Loadout) {
+    this.painter.paint({ color: hexOf(HULL_COLORS, l.color), accent: hexOf(ACCENT_COLORS, l.accent), pattern: l.pattern, callsign: l.callsign || 'EC-07' });
+    if (l.shape !== this.shapeId) {
+      this.shapeId = l.shape;
+      const r = l.shape === 'sharp' ? 0.4 : l.shape === 'soft' ? 5.6 : 2.4;
+      this.hull.geometry.dispose();
+      this.hull.geometry = new RoundedBoxGeometry(16, 13, 13, l.shape === 'soft' ? 6 : 4, r);
+    }
+    const light = new Color(hexOf(LIGHTS, l.light));
+    this.spot.color.copy(light);
+    this.beamMat.uniforms.uColor.value.copy(light);
+    this.lensMat.emissive.copy(light);
+    for (const c of this.cage) c.visible = l.cage;
   }
 
   /** Called every frame with visual state from the Player. */

@@ -3,7 +3,7 @@ import type { Player } from '../Player';
 import type { Projectiles } from '../../combat/Projectiles';
 import type { Particles } from '../../fx/Particles';
 import type { Telegraph } from '../../fx/Telegraph';
-import type { EnemyKind } from '../../game/zones';
+import type { EnemyKind } from '../Enemies';
 import { damp } from '../../core/math';
 
 export interface BossContext {

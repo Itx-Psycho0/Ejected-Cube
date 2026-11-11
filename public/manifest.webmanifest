@@ -1,7 +1,7 @@
 {
-  "name": "Ejected Cube: Abyssal Ascent",
+  "name": "Ejected Cube",
   "short_name": "Ejected Cube",
-  "description": "Your escape pod was fired out of a collapsing deep-sea station. Climb 6,000 metres to the surface.",
+  "description": "Fly the last cube of light home through ten hand-styled worlds.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

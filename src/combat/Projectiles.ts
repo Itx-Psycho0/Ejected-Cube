@@ -184,7 +184,7 @@ export class Projectiles {
       d.scale.set(torp ? 1.3 : 1, torp ? 1.6 : 1, torp ? 1.6 : 1);
       d.updateMatrix();
       this.shotMesh.setMatrixAt(n, d.matrix);
-      this.shotMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xffb347 : 0x7ffff0).multiplyScalar(torp ? 3 : 2.6));
+      this.shotMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xffb347 : 0xfff3d6).multiplyScalar(torp ? 3 : 2.4));
       n++;
     }
     this.shotMesh.count = n;

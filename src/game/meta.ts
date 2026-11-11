@@ -11,11 +11,11 @@ export interface UpgradeDef {
 
 export const UPGRADES: UpgradeDef[] = [
   { id: 'hull', name: 'Reinforced Hull', desc: (l) => `Max hull ${100 + l * 15}`, costs: [4, 8, 14, 22, 32] },
-  { id: 'tank', name: 'Oxygen Reserve', desc: (l) => `Max oxygen ${100 + l * 15}, drain −${l * 6}%`, costs: [4, 8, 14, 22, 32] },
-  { id: 'sonar', name: 'Sonar Emitter', desc: (l) => `Shot damage +${l * 15}%`, costs: [5, 10, 16, 24, 34] },
+  { id: 'tank', name: 'Spark Reserve', desc: (l) => `Max light ${100 + l * 15}, fade −${l * 6}%`, costs: [4, 8, 14, 22, 32] },
+  { id: 'sonar', name: 'Pulse Emitter', desc: (l) => `Shot damage +${l * 15}%`, costs: [5, 10, 16, 24, 34] },
   { id: 'cannon', name: 'Pulse Capacitor', desc: (l) => `Fire rate +${l * 10}%, ammo cap +${l * 10}`, costs: [5, 10, 16, 24, 34] },
   { id: 'thrusters', name: 'Burst Thrusters', desc: (l) => `Dash cooldown −${l * 12}%`, costs: [3, 7, 12, 18] },
-  { id: 'magnet', name: 'Bio-Attractor', desc: (l) => (l ? `Always pull plankton within ${l * 30} m` : 'Pull nearby plankton'), costs: [6, 12, 20] },
+  { id: 'magnet', name: 'Attractor', desc: (l) => (l ? `Always pull sparks within ${l * 30} m` : 'Pull nearby sparks'), costs: [6, 12, 20] },
   { id: 'lumen', name: 'Lumen Cells', desc: (l) => `Bioflare charges ${l * 20}% faster`, costs: [4, 9, 16] },
 ];
 
@@ -46,19 +46,21 @@ export interface AchievementDef {
 }
 
 export const ACHIEVEMENTS: AchievementDef[] = [
-  { id: 'ejected', name: 'Ejected', desc: 'Survive the station collapse and start your first ascent.' },
-  { id: 'boss_warden', name: 'Vent Breaker', desc: 'Defeat the Thermal Warden.' },
+  { id: 'ejected', name: 'Ejected', desc: 'Leave the Atlas Engine and fly your first page.' },
+  { id: 'boss_warden', name: 'Cooled Off', desc: 'Defeat the Thermal Warden.' },
   { id: 'boss_lantern', name: 'Lights Out', desc: 'Defeat The Lantern.' },
   { id: 'boss_chain', name: 'Broken Chain', desc: 'Defeat The Chain.' },
-  { id: 'boss_kraken', name: 'Calamari', desc: 'Defeat the Kraken.' },
-  { id: 'boss_leviathan', name: 'Leviathan Slayer', desc: 'Defeat the Leviathan.' },
-  { id: 'surface', name: 'First Breath', desc: 'Reach the surface.' },
-  { id: 'untouchable', name: 'Untouchable', desc: 'Defeat a boss without taking hull damage.' },
-  { id: 'combo', name: 'Plankton Feast', desc: 'Reach a ×40 plankton combo.' },
-  { id: 'pearls', name: 'Pearl Diver', desc: 'Collect 25 pearls in total.' },
-  { id: 'dasher', name: 'Battering Ram', desc: 'Destroy 25 creatures by dashing through them.' },
+  { id: 'boss_kraken', name: 'Ink Spilled', desc: 'Defeat the Kraken.' },
+  { id: 'boss_leviathan', name: 'First Stain', desc: 'Defeat the Leviathan.' },
+  { id: 'surface', name: 'Rewritten', desc: 'Return to the Atlas Engine (finish level 15).' },
+  { id: 'untouchable', name: 'Untouchable', desc: 'Defeat a boss without taking damage.' },
+  { id: 'combo', name: 'Bright Idea', desc: 'Reach a ×40 spark combo.' },
+  { id: 'pearls', name: 'Shard Collector', desc: 'Find 25 hidden shards in total.' },
+  { id: 'dasher', name: 'Battering Ram', desc: 'Ram 25 creatures with a dash.' },
   { id: 'flare', name: 'Supernova', desc: 'Destroy 8 creatures with a single Bioflare.' },
-  { id: 'echo', name: 'Echolocation', desc: 'Reveal 60 hidden creatures with sonar pings.' },
-  { id: 'deep_breath', name: 'Deep Breath', desc: 'Climb above 2,000 m in a single run.' },
-  { id: 'daily', name: 'Daily Diver', desc: 'Finish a Daily Dive.' },
+  { id: 'echo', name: 'Echolocation', desc: 'Reveal 60 creatures with pulses.' },
+  { id: 'deep_breath', name: 'Page Turner', desc: 'Visit all ten worlds.' },
+  { id: 'daily', name: 'Daily Page', desc: 'Finish a Daily run.' },
+  { id: 'tourist', name: 'Well Travelled', desc: 'Visit five different worlds in one run.' },
+  { id: 'stylist', name: 'Personal Touch', desc: 'Buy something in the hangar.' },
 ];

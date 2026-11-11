@@ -1,14 +1,4 @@
-import {
-
-  HalfFloatType,
-  NoToneMapping,
-  PCFSoftShadowMap,
-  PerspectiveCamera,
-  Scene,
-  SRGBColorSpace,
-  Vector2,
-  WebGLRenderer,
-} from 'three';
+import { HalfFloatType, NoToneMapping, PCFSoftShadowMap, PerspectiveCamera, Scene, SRGBColorSpace, Vector2, WebGLRenderer } from 'three';
 import {
   BloomEffect,
   BlendFunction,
@@ -22,10 +12,17 @@ import {
   VignetteEffect,
 } from 'postprocessing';
 import type { QualityPreset } from './Quality';
+import { StylizeEffect } from '../fx/StylizeEffect';
+import type { ThemeFx } from '../themes/themes';
+import { damp } from './math';
+
+type Num = 'bloom' | 'bloomThreshold' | 'outline' | 'hatch' | 'paper' | 'ink' | 'saturation' | 'contrast' | 'vignette' | 'grain' | 'posterize';
+const NUM_KEYS: Num[] = ['bloom', 'bloomThreshold', 'outline', 'hatch', 'paper', 'ink', 'saturation', 'contrast', 'vignette', 'grain', 'posterize'];
 
 /**
- * Owns the WebGL renderer and the post-processing chain.
- * All screen effects are merged into one EffectPass (one fullscreen draw).
+ * Owns the WebGL renderer and the post-processing chain:
+ *   RenderPass -> [bloom, chromatic aberration, ACES] -> [stylize, vignette, grain]
+ * Theme FX values blend smoothly when the world changes.
  */
 export class Renderer {
   readonly gl: WebGLRenderer;
@@ -34,9 +31,27 @@ export class Renderer {
   private bloom!: BloomEffect;
   private chromatic!: ChromaticAberrationEffect;
   private vignette!: VignetteEffect;
-  private effectPass!: EffectPass;
+  private noise!: NoiseEffect;
+  readonly stylize = new StylizeEffect();
+  private passA?: EffectPass;
+  private passB?: EffectPass;
   private preset: QualityPreset;
   private caOffset = new Vector2();
+  private fx: Record<Num, number> = {
+    bloom: 1.3,
+    bloomThreshold: 0.62,
+    outline: 0,
+    hatch: 0,
+    paper: 0,
+    ink: 0,
+    saturation: 1,
+    contrast: 1,
+    vignette: 0.7,
+    grain: 0.06,
+    posterize: 0,
+  };
+  private target: Record<Num, number> = { ...this.fx };
+  private chromaticBase = 1;
   /** 0..1 chromatic aberration pulse, decays every frame. */
   aberration = 0;
 
@@ -46,15 +61,9 @@ export class Renderer {
     preset: QualityPreset,
   ) {
     this.preset = preset;
-    this.gl = new WebGLRenderer({
-      canvas,
-      antialias: false, // MSAA is handled by the composer
-      stencil: false,
-      depth: true,
-      powerPreference: 'high-performance',
-    });
+    this.gl = new WebGLRenderer({ canvas, antialias: false, stencil: false, depth: true, powerPreference: 'high-performance' });
     this.gl.outputColorSpace = SRGBColorSpace;
-    this.gl.toneMapping = NoToneMapping; // tone mapping happens in the effect pass
+    this.gl.toneMapping = NoToneMapping;
     this.gl.shadowMap.type = PCFSoftShadowMap;
     this.gl.info.autoReset = false;
 
@@ -68,34 +77,29 @@ export class Renderer {
   }
 
   private buildEffects() {
-    if (this.effectPass) {
-      this.composer.removePass(this.effectPass);
-      this.effectPass.dispose();
+    for (const p of [this.passA, this.passB]) {
+      if (!p) continue;
+      this.composer.removePass(p);
+      p.dispose();
     }
     const p = this.preset;
     this.bloom = new BloomEffect({
-      intensity: 1.35,
-      luminanceThreshold: 0.62,
+      intensity: this.fx.bloom,
+      luminanceThreshold: this.fx.bloomThreshold,
       luminanceSmoothing: 0.25,
       mipmapBlur: true,
       radius: 0.72,
       resolutionScale: p.bloomScale,
     });
-    this.chromatic = new ChromaticAberrationEffect({
-      offset: this.caOffset,
-      radialModulation: true,
-      modulationOffset: 0.25,
-    });
-    this.vignette = new VignetteEffect({ offset: 0.32, darkness: 0.72 });
-    const noise = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: false });
-    noise.blendMode.opacity.value = 0.07;
+    this.chromatic = new ChromaticAberrationEffect({ offset: this.caOffset, radialModulation: true, modulationOffset: 0.25 });
+    this.vignette = new VignetteEffect({ offset: 0.32, darkness: this.fx.vignette });
+    this.noise = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: false });
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-
-    const effects = [p.bloom ? this.bloom : null, p.chromatic ? this.chromatic : null, this.vignette, noise, tone].filter(
-      (e): e is NonNullable<typeof e> => e !== null,
-    );
-    this.effectPass = new EffectPass(this.camera, ...effects);
-    this.composer.addPass(this.effectPass);
+    const a = [this.bloom, ...(p.chromatic ? [this.chromatic] : []), tone];
+    this.passA = new EffectPass(this.camera, ...a);
+    this.passB = new EffectPass(this.camera, this.stylize, this.vignette, this.noise);
+    this.composer.addPass(this.passA);
+    this.composer.addPass(this.passB);
   }
 
   applyQuality(preset: QualityPreset) {
@@ -107,12 +111,13 @@ export class Renderer {
     this.resize();
   }
 
-  setBloomIntensity(v: number) {
-    this.bloom.intensity = v;
-  }
-
-  setVignette(darkness: number) {
-    this.vignette.darkness = darkness;
+  /** Blend toward a theme's look. `instant` snaps (menus, first frame). */
+  setTheme(fx: ThemeFx, paperColor: number, instant = false) {
+    for (const k of NUM_KEYS) this.target[k] = fx[k];
+    this.chromaticBase = fx.chromatic ? 1 : 0;
+    this.stylize.setColor('uOutlineColor', fx.outlineColor);
+    this.stylize.setColor('uPaperColor', paperColor);
+    if (instant) Object.assign(this.fx, this.target);
   }
 
   resize() {
@@ -123,30 +128,42 @@ export class Renderer {
     this.gl.setSize(w, h, false);
     this.composer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    // Keep the playfield readable on portrait phones by widening the FOV.
     this.camera.fov = this.camera.aspect < 1 ? 62 : 48;
     this.camera.updateProjectionMatrix();
+    this.stylize.set('uOutlineWidth', Math.max(1, pr * 0.9));
   }
 
   render(dt: number) {
+    for (const k of NUM_KEYS) this.fx[k] = damp(this.fx[k], this.target[k], 1.6, Math.max(dt, 0.016));
+    const f = this.fx;
+    this.bloom.intensity = f.bloom;
+    this.bloom.luminanceMaterial.threshold = f.bloomThreshold;
+    this.vignette.darkness = f.vignette;
+    this.noise.blendMode.opacity.value = f.grain;
+    const s = this.stylize;
+    s.set('uOutline', f.outline);
+    s.set('uHatch', f.hatch);
+    s.set('uPaper', f.paper);
+    s.set('uInk', f.ink);
+    s.set('uSaturation', f.saturation);
+    s.set('uContrast', f.contrast);
+    s.set('uPosterize', f.posterize > 0.5 ? f.posterize : 0);
+
     this.aberration = Math.max(0, this.aberration - dt * 2.2);
-    const a = 0.0006 + this.aberration * 0.006;
+    const a = 0.0006 * this.chromaticBase + this.aberration * 0.006;
     this.caOffset.set(a, a * 0.6);
     this.gl.info.reset();
     this.composer.render(dt);
   }
 
-  /** Synchronously compile materials that were just added (e.g. a boss). */
   compile() {
     this.gl.compile(this.scene, this.camera);
   }
 
-  /** Compile all shaders up front so the first explosion doesn't hitch. */
   async warmup() {
     await this.gl.compileAsync(this.scene, this.camera);
   }
 
-  /** Visible half extents of the z = 0 gameplay plane. */
   playfieldHalfSize(out: Vector2): Vector2 {
     const dist = this.camera.position.z;
     const halfH = Math.tan((this.camera.fov * Math.PI) / 360) * dist;
@@ -157,4 +174,3 @@ export class Renderer {
     return this.gl.info.render.calls;
   }
 }
-

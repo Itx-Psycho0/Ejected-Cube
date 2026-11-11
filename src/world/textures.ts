@@ -93,8 +93,6 @@ export interface TextureSet {
   rustColor: Texture;
   rustNormal: Texture;
   rustRough: Texture;
-  hullColor: Texture;
-  hullRough: Texture;
   hullNormal: Texture;
   scalesNormal: Texture;
   chainAlpha: Texture;
@@ -135,92 +133,8 @@ export function getTextures(): TextureSet {
     ctx.putImageData(img, 0, 0);
   }
 
-  // Escape pod hull: hazard-orange paint, panel seams, rivets, stencil, wear.
+  // Hull panel seams for the escape cube's normal map (paint is done per loadout).
   const hullH = heightField(512, 4, 5);
-  const hullC = canvas(512);
-  const hullRC = canvas(512);
-  {
-    const ctx = hullC.getContext('2d')!;
-    ctx.fillStyle = '#e8792a';
-    ctx.fillRect(0, 0, 512, 512);
-    // Panel seams
-    ctx.strokeStyle = 'rgba(40,20,10,0.55)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i <= 4; i++) {
-      ctx.beginPath();
-      ctx.moveTo(0, i * 128);
-      ctx.lineTo(512, i * 128);
-      ctx.moveTo(i * 128, 0);
-      ctx.lineTo(i * 128, 512);
-      ctx.stroke();
-    }
-    // Rivets
-    ctx.fillStyle = 'rgba(255,220,180,0.55)';
-    for (let i = 0; i <= 4; i++)
-      for (let j = 0; j < 16; j++) {
-        ctx.beginPath();
-        ctx.arc(i * 128 + 6, j * 32 + 16, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    // Hazard stripes band
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 384 + 20, 512, 40);
-    ctx.clip();
-    ctx.fillStyle = '#1b1b1b';
-    ctx.fillRect(0, 404, 512, 40);
-    ctx.fillStyle = '#f2c230';
-    for (let x = -60; x < 560; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 444);
-      ctx.lineTo(x + 20, 444);
-      ctx.lineTo(x + 40, 404);
-      ctx.lineTo(x + 20, 404);
-      ctx.fill();
-    }
-    ctx.restore();
-    // Stencil text
-    ctx.fillStyle = 'rgba(20,20,20,0.85)';
-    ctx.font = 'bold 44px monospace';
-    ctx.fillText('EC-07', 150, 90);
-    ctx.font = 'bold 18px monospace';
-    ctx.fillText('ESCAPE CAPSULE  /  HADAL STATION KESTREL', 14, 240);
-    ctx.fillText('DO NOT OBSTRUCT HATCH', 160, 330);
-    // Wear: scratches and chipped paint
-    const img = ctx.getImageData(0, 0, 512, 512);
-    for (let i = 0; i < 512 * 512; i++) {
-      const v = hullH[i];
-      const chip = v > 0.72 ? 1 : 0;
-      const grime = (1 - v) * 0.35;
-      for (let c = 0; c < 3; c++) {
-        let val = img.data[i * 4 + c];
-        val = val * (1 - grime) + 30 * grime;
-        if (chip) val = 120 + c * 6;
-        img.data[i * 4 + c] = val;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    for (let s = 0; s < 70; s++) {
-      ctx.strokeStyle = `rgba(200,190,170,${0.1 + Math.random() * 0.25})`;
-      ctx.lineWidth = 0.6 + Math.random();
-      const x = Math.random() * 512;
-      const y = Math.random() * 512;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + (Math.random() - 0.5) * 60, y + (Math.random() - 0.5) * 16);
-      ctx.stroke();
-    }
-    // Roughness: paint 0.45, chips (bare metal) 0.25, grime 0.8
-    const rctx = hullRC.getContext('2d')!;
-    const rimg = rctx.createImageData(512, 512);
-    for (let i = 0; i < 512 * 512; i++) {
-      const v = hullH[i];
-      const r = v > 0.72 ? 0.25 : 0.45 + (1 - v) * 0.4;
-      rimg.data[i * 4] = rimg.data[i * 4 + 1] = rimg.data[i * 4 + 2] = r * 255;
-      rimg.data[i * 4 + 3] = 255;
-    }
-    rctx.putImageData(rimg, 0, 0);
-  }
   const hullNH = new Float32Array(512 * 512);
   for (let y = 0; y < 512; y++)
     for (let x = 0; x < 512; x++) {
@@ -260,11 +174,56 @@ export function getTextures(): TextureSet {
     rustColor: finish(new CanvasTexture(rustC), true),
     rustNormal: finish(normalMapFrom(rustH, 256, 5), false),
     rustRough: finish(greyMapFrom(rustH, 256, (v) => 0.5 + v * 0.45), false),
-    hullColor: finish(new CanvasTexture(hullC), true),
-    hullRough: finish(new CanvasTexture(hullRC), false),
     hullNormal: finish(normalMapFrom(hullNH, 512, 4), false),
     scalesNormal: finish(normalMapFrom(scaleH, 128, 2.5), false),
     chainAlpha: finish(new CanvasTexture(chainC), false),
   };
   return cache;
+}
+
+const groundCache = new Map<string, Texture>();
+
+/** Normal map for each ground surface type used by the themes. */
+export function groundNormal(type: 'sand' | 'paper' | 'tiles' | 'studs' | 'snow' | 'clay'): Texture {
+  const hit = groundCache.get(type);
+  if (hit) return hit;
+  if (type === 'sand') return getTextures().sandNormal;
+  const size = 256;
+  const h = new Float32Array(size * size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      let val = 0;
+      switch (type) {
+        case 'paper':
+          val = n.fbm2(u * 24, v * 24, 3, 24) * 0.3 + Math.abs(n.noise2(u * 64, v * 4, 64)) * 0.25;
+          break;
+        case 'tiles': {
+          const gx = (u * 4) % 1;
+          const gy = (v * 4) % 1;
+          val = gx < 0.03 || gy < 0.03 ? -1 : n.fbm2(u * 16, v * 16, 2, 16) * 0.05;
+          break;
+        }
+        case 'studs': {
+          const cx = ((u * 8) % 1) - 0.5;
+          const cy = ((v * 8) % 1) - 0.5;
+          const r = Math.hypot(cx, cy);
+          val = r < 0.3 ? 1 : r < 0.34 ? 0.5 : 0;
+          break;
+        }
+        case 'snow':
+          val = n.fbm2(u * 8, v * 8, 5, 8) * 0.6;
+          break;
+        case 'clay':
+          // Soft lumps plus faint thumb-print rings.
+          val = n.fbm2(u * 6, v * 6, 3, 6) * 0.7 + Math.sin(Math.hypot(u - 0.5, v - 0.5) * 120) * 0.03;
+          break;
+      }
+      h[y * size + x] = val;
+    }
+  const strength = type === 'studs' ? 5 : type === 'tiles' ? 4 : 3;
+  const tex = finish(normalMapFrom(h, size, strength), false);
+  groundCache.set(type, tex);
+  return tex;
 }

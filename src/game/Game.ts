@@ -8,11 +8,11 @@ import { Random, dailySeed } from '../core/Random';
 import { clamp, damp, easeOutCubic } from '../core/math';
 import { audio } from '../audio/AudioEngine';
 import { Atmosphere } from '../world/Atmosphere';
-import { Seabed } from '../world/Seabed';
+import { Ground } from '../world/Ground';
 import { Fauna } from '../world/Fauna';
-import { Station } from '../world/Station';
+import { Clouds } from '../world/Clouds';
 import { Player, type PowerUp } from '../entities/Player';
-import { Enemies, ENEMY_SPECS, type Enemy, type EnemyContext } from '../entities/Enemies';
+import { Enemies, ENEMY_SPECS, type Enemy, type EnemyContext, type EnemyKind } from '../entities/Enemies';
 import { Pickups, POWERUP_INFO, type Pickup } from '../entities/Pickups';
 import { createBoss, type Boss, type BossContext } from '../entities/bosses';
 import { Particles } from '../fx/Particles';
@@ -21,41 +21,61 @@ import { SonarPing } from '../fx/SonarPing';
 import { CameraRig } from '../fx/CameraRig';
 import { Flash } from '../fx/Flash';
 import { Telegraph } from '../fx/Telegraph';
-import { ZONES, MENU_MOOD, SURFACE_MOOD, depthAt, type ZoneDef, type EnemyKind } from './zones';
 import { Save, type Settings } from './Save';
 import { ACHIEVEMENTS, UPGRADES, lumenGain, statsFor, type UpgradeId } from './meta';
+import { DIFFICULTY, STORY_END_LEVEL, levelDef, type LevelDef } from './levels';
+import { describe, nextMission, type MissionKind } from './missions';
+import { costOf, type Loadout } from './cosmetics';
+import { THEMES, THEME_IDS, randomTheme, type ThemeDef, type ThemeId } from '../themes/themes';
+import { MaterialStyler } from '../themes/MaterialStyler';
 import { UI, type RunSummary } from '../ui/UI';
+import { applyUiTheme } from '../ui/theme';
+import { StoryPlayer } from '../ui/Story';
 
-type Mode = 'boot' | 'menu' | 'intro' | 'play' | 'boss' | 'transition' | 'surfacing' | 'dead' | 'victory';
+type Mode = 'boot' | 'story' | 'menu' | 'hangar' | 'intro' | 'play' | 'boss' | 'transition' | 'dead' | 'ending' | 'victory';
 
 interface Run {
-  zone: number;
-  zoneTime: number;
-  depth: number;
+  level: number;
+  def: LevelDef;
+  levelTime: number;
+  startLevel: number;
+  distance: number;
   score: number;
   kills: number;
-  plankton: number;
-  pearls: number;
+  sparks: number;
+  shards: number;
   combo: number;
   comboTimer: number;
-  bestCombo: number;
   time: number;
   daily: boolean;
-  difficulty: number;
   bossHullAtStart: number;
+  hurtThisLevel: boolean;
   dashKills: number;
+  dashes: number;
   reveals: number;
-  lastDepthScore: number;
+  flares: number;
+  worlds: Set<ThemeId>;
+  endingShown: boolean;
+  tutorial: number; // -1 = not a tutorial, else the current step
+  tutorialCount: number;
 }
 
 const BASE_SPEED = 82;
 const FIRE_SPEED = 640;
 const PING_COOLDOWN = 7;
 
+interface TutorialStep {
+  title: string;
+  text: (touch: boolean) => string;
+  setup: (g: Game) => void;
+  done: (g: Game) => boolean;
+}
+
 /**
  * Owns every system and runs the state machine:
- * boot -> menu -> intro (ejection) -> play <-> boss -> transition -> ... -> surfacing -> victory
- *                                       \-> dead
+ * boot -> story (first visit) -> menu <-> hangar
+ * menu -> page turn -> intro -> play <-> boss -> page turn -> play ... -> ending -> victory
+ *                                   \-> dead
  */
 export class Game {
   readonly scene = new Scene();
@@ -63,27 +83,29 @@ export class Game {
   readonly input: Input;
   readonly save = new Save();
   readonly ui: UI;
-  private loop: Loop;
+  readonly loop: Loop;
   private quality: QualityPreset;
   private governor: QualityGovernor;
+  private styler = new MaterialStyler();
   private atmo!: Atmosphere;
-  private seabed!: Seabed;
+  private ground!: Ground;
   private fauna!: Fauna;
-  private station!: Station;
+  private clouds!: Clouds;
   readonly player = new Player();
   private particles!: Particles;
-  private projectiles!: Projectiles;
-  private enemies!: Enemies;
-  private pickups!: Pickups;
+  readonly projectiles!: Projectiles;
+  readonly enemies!: Enemies;
+  readonly pickups!: Pickups;
   private ping!: SonarPing;
   private rig: CameraRig;
   private flash!: Flash;
   private telegraph!: Telegraph;
   boss: (Boss & { extras?: import('three').Object3D[] }) | null = null;
+  theme: ThemeDef;
 
   mode: Mode = 'boot';
   paused = false;
-  private bounds = new Vector2(180, 100);
+  readonly bounds = new Vector2(180, 100);
   private scrollSpeed = 0;
   private modeTime = 0;
   private fireCd = 0;
@@ -91,13 +113,14 @@ export class Game {
   private pingCd = 0;
   private damageFlash = 0;
   private hitStop = 0;
+  private trailAcc = 0;
   private rnd = new Random();
-  private run!: Run;
+  run!: Run;
   private hints = new Set<string>();
   private v3 = new Vector3();
   private enemyCtx!: EnemyContext;
   private bossCtx!: BossContext;
-  private endlessLevel = 0;
+  private busy = false;
 
   constructor(canvas: HTMLCanvasElement) {
     const q = this.save.data.settings.quality;
@@ -109,11 +132,15 @@ export class Game {
     this.governor = new QualityGovernor((to) => this.setQuality(to));
     this.governor.enabled = q === 'auto';
     this.loop = new Loop((dt, raw) => this.frame(dt, raw));
+    const s = this.save.data.settings;
+    this.theme = THEMES[s.lockTheme === 'random' ? randomTheme(s.themePool) : s.lockTheme];
+    applyUiTheme(s.uiFollowsWorld ? this.theme : THEMES.paper);
+    this.ui.theme = this.theme;
     this.bindUi();
     window.addEventListener('resize', () => this.renderer.resize());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && (this.mode === 'play' || this.mode === 'boss')) this.setPaused(true);
-      audio.ctx && (document.hidden ? void audio.ctx.suspend() : void audio.ctx.resume());
+      if (audio.ctx) void (document.hidden ? audio.ctx.suspend() : audio.ctx.resume());
     });
   }
 
@@ -126,35 +153,37 @@ export class Game {
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       fn();
     };
-    const zone = ZONES[0];
-    await step(0.1, 'Pressurising cabin', () => {
-      this.atmo = new Atmosphere(this.scene, zone, this.quality);
+    const t = this.theme;
+    await step(0.1, 'Mixing the sky', () => {
+      this.atmo = new Atmosphere(this.scene, t, this.quality);
     });
-    await step(0.3, 'Mapping the trench', () => {
-      this.seabed = new Seabed(this.scene, zone, this.atmo, this.quality);
+    await step(0.3, 'Folding hills', () => {
+      this.ground = new Ground(this.scene, t, this.atmo, this.quality);
       this.fauna = new Fauna(this.scene, this.atmo, this.quality);
-      this.station = new Station();
-      this.scene.add(this.station.root);
+      this.clouds = new Clouds(this.scene);
     });
-    await step(0.5, 'Charging sonar', () => {
+    await step(0.5, 'Charging the cube', () => {
       const pr = Math.min(devicePixelRatio, this.quality.maxPixelRatio);
       this.particles = new Particles(this.scene, this.quality.density, pr);
-      this.projectiles = new Projectiles(this.scene);
+      (this as { projectiles: Projectiles }).projectiles = new Projectiles(this.scene);
       this.ping = new SonarPing(this.scene);
       this.flash = new Flash(this.scene);
       this.telegraph = new Telegraph(this.scene);
       this.scene.add(this.player.model.root);
+      this.player.model.applyLoadout(this.save.data.loadout);
     });
-    await step(0.65, 'Listening for contacts', () => {
-      this.enemies = new Enemies(this.scene, this.particles, this.projectiles, this.atmo.shared.uTime, this.atmo.look.accent);
-      this.pickups = new Pickups(this.scene);
+    await step(0.65, 'Spotting the Blot', () => {
+      (this as { enemies: Enemies }).enemies = new Enemies(this.scene, this.particles, this.projectiles, this.atmo.shared.uTime, this.atmo.shared.uSunColor.value);
+      (this as { pickups: Pickups }).pickups = new Pickups(this.scene);
       this.makeContexts();
     });
-    await step(0.8, 'Compiling shaders', () => {});
+    await step(0.8, 'Inking the outlines', () => {
+      this.applyTheme(t, true);
+    });
     try {
       await this.renderer.warmup();
     } catch {
-      /* compileAsync is optional */
+      /* optional */
     }
     this.ui.setBootProgress(1, 'Ready');
     this.applySettings(this.save.data.settings);
@@ -168,10 +197,10 @@ export class Game {
       player: this.player,
       scrollSpeed: 0,
       bounds: this.bounds,
-      darkness: 1,
-      floorAt: (x) => this.seabed.floorAt(x),
+      darkness: 0,
+      floorAt: (x) => this.ground.floorAt(x),
       difficulty: 1,
-      onContact: (e) => this.hurt(e.contactDamage, 'hull'),
+      onContact: (e) => this.hurt(e.contactDamage * (this.run?.def.enemyDamage ?? 1), 'hull'),
       onExplosion: (x, y, r, dmg) => this.explosion(x, y, r, dmg),
       onKill: (e, by) => this.onEnemyKilled(e, by),
     };
@@ -182,7 +211,7 @@ export class Game {
       telegraph: this.telegraph,
       bounds: this.bounds,
       difficulty: 1,
-      floorAt: (x) => this.seabed.floorAt(x),
+      floorAt: (x) => this.ground.floorAt(x),
       shake: (v) => this.rig.addTrauma(v),
       sfx: (n) => {
         if (n === 'roar') audio.bossRoar();
@@ -190,9 +219,50 @@ export class Game {
         else if (n === 'shoot') audio.enemyHit();
         else audio.explode(0.6);
       },
-      spawnEnemy: (k: EnemyKind, x, y) => this.enemies.spawn(k, x, y, this.run.difficulty),
-      darken: (a, s) => this.ui.darken(a, s),
+      spawnEnemy: (k: EnemyKind, x, y) => this.enemies.spawn(k, x, y, this.run.def.enemyHp),
+      darken: (a, s) => this.ui.darken(a * (this.theme.world.darkness > 0.5 ? 1 : 0.6), s),
     };
+  }
+
+  // ------------------------------------------------------------------ worlds
+
+  /** Switch everything to a world. `instant` is used behind a page turn. */
+  applyTheme(t: ThemeDef, instant: boolean) {
+    this.theme = t;
+    this.ui.theme = t;
+    this.atmo.setTheme(t, instant);
+    this.ground.setTheme(t);
+    this.clouds.setTheme(t);
+    this.fauna.setTheme(t);
+    this.styler.setStyle(t.material, this.scene);
+    this.renderer.setTheme(t.fx, t.world.skyHorizon, instant);
+    if (this.save.data.settings.uiFollowsWorld) applyUiTheme(t);
+    audio.setMood(t.mood);
+    audio.setAmbience(t.ambience);
+    try {
+      this.renderer.compile();
+    } catch {
+      /* compile is an optimisation */
+    }
+  }
+
+  private pickTheme(): ThemeDef {
+    const s = this.save.data.settings;
+    if (s.lockTheme !== 'random') return THEMES[s.lockTheme];
+    return THEMES[randomTheme(s.themePool, this.theme.id, () => this.rnd.next())];
+  }
+
+  private noteWorld(t: ThemeId) {
+    const s = this.save.data;
+    if (!s.worldsSeen.includes(t)) {
+      s.worldsSeen.push(t);
+      if (s.worldsSeen.length >= THEME_IDS.length) this.unlock('deep_breath');
+    }
+    if (this.run) {
+      this.run.worlds.add(t);
+      this.missionMax('worlds', this.run.worlds.size);
+      if (this.run.worlds.size >= 5) this.unlock('tourist');
+    }
   }
 
   // ------------------------------------------------------------------ UI wiring
@@ -202,30 +272,51 @@ export class Game {
     ui.events.on('begin', () => {
       audio.unlock();
       this.applySettings(this.save.data.settings);
-      audio.setMood(MENU_MOOD);
-      ui.show('title');
+      if (!this.save.data.storySeen) this.playStory('intro');
+      else this.toTitle();
     });
-    ui.events.on('dive', ({ daily }) => this.startRun(daily, 0));
+    ui.events.on('dive', ({ daily, level }) => {
+      if (!daily && !this.save.data.tutorialDone) this.startRun(1, false, true);
+      else this.startRun(level ?? 1, daily, false);
+    });
     ui.events.on('resume', () => this.setPaused(false));
     ui.events.on('restart', () => {
-      this.commitRun(false, true);
-      this.startRun(this.run?.daily ?? false, this.endlessLevel);
+      if (this.mode !== 'dead') this.commitRun(true);
+      this.startRun(this.run?.startLevel ?? 1, this.run?.daily ?? false, false);
     });
-    ui.events.on('endless', () => this.startRun(false, this.endlessLevel + 1));
+    ui.events.on('continueRun', () => {
+      this.ui.show('none');
+      this.levelComplete();
+    });
     ui.events.on('menu', () => {
-      if (this.mode === 'play' || this.mode === 'boss' || this.mode === 'transition') this.commitRun(false, true);
+      if (['play', 'boss', 'transition', 'intro', 'victory'].includes(this.mode)) this.commitRun(true);
       this.enterMenu(false);
     });
     ui.events.on('settings', (s) => this.applySettings(s));
     ui.events.on('buy', (id) => this.buy(id));
-    ui.events.on('resetSave', () => this.save.reset());
+    ui.events.on('loadout', ({ group, value }) => this.setLoadout(group, value));
+    ui.events.on('resetSave', () => {
+      this.save.reset();
+      this.player.model.applyLoadout(this.save.data.loadout);
+    });
+    ui.events.on('shuffle', () => this.shuffleMenuWorld());
+    ui.events.on('story', () => this.playStory('intro'));
+    ui.events.on('tutorial', () => this.startRun(1, false, true));
+    ui.events.on('openHangar', () => {
+      this.mode = 'hangar';
+      this.modeTime = 0;
+    });
+    ui.events.on('closeHangar', () => {
+      this.mode = 'menu';
+      this.player.model.root.rotation.set(0, 0, 0);
+    });
     ui.events.on('exit', () => {
       this.ui.show('exit');
       audio.setPaused(true);
       try {
         window.close();
       } catch {
-        /* most browsers refuse; the exit screen covers it */
+        /* browsers usually refuse; the exit screen covers it */
       }
     });
     ui.bindTouch((a, down) => {
@@ -242,22 +333,69 @@ export class Game {
     });
   }
 
+  private playStory(kind: 'intro' | 'ending') {
+    const prev = this.mode;
+    this.mode = kind === 'intro' ? 'story' : 'ending';
+    this.ui.show('none');
+    this.ui.setHudVisible(false);
+    audio.setMood({ root: 60, scale: [0, 2, 4, 7, 9], bpm: 66, density: 0.3, cutoff: 3000 });
+    new StoryPlayer(this.ui.root, kind, () => {
+      audio.setMood(this.theme.mood);
+      if (kind === 'intro') {
+        this.save.data.storySeen = true;
+        this.save.write();
+        if (prev === 'story' || prev === 'boot' || prev === 'menu') this.toTitle();
+        else this.toTitle();
+      } else {
+        this.mode = 'victory';
+        this.ui.showVictory(this.summary(false));
+      }
+    });
+  }
+
+  private toTitle() {
+    this.mode = 'menu';
+    this.ui.show('title');
+    if (!this.save.data.coachDone) {
+      this.ui.coachHome(() => {
+        this.save.data.coachDone = true;
+        this.save.write();
+      });
+    }
+  }
+
+  private shuffleMenuWorld() {
+    if (this.busy) return;
+    this.busy = true;
+    const next = this.pickTheme();
+    void this.ui
+      .pageTurn(next, next.name, 'Turning the page', () => {
+        this.applyTheme(next, true);
+        this.noteWorld(next.id);
+        this.ui.show('title');
+      })
+      .then(() => (this.busy = false));
+  }
+
   private applySettings(s: Settings) {
+    const prevFollow = this.save.data.settings.uiFollowsWorld;
     this.save.data.settings = s;
     this.save.write();
     audio.setVolumes(s.master, s.music, s.sfx);
     this.rig.shakeScale = s.shake && !s.reducedMotion ? 1 : 0;
     this.ui.showFps(s.showFps);
+    this.ui.setHudScale(s.hudScale);
     this.governor.enabled = s.quality === 'auto';
     const level = s.quality === 'auto' ? this.quality.level : s.quality;
     if (level !== this.quality.level) this.setQuality(level);
+    if (prevFollow !== s.uiFollowsWorld) applyUiTheme(s.uiFollowsWorld ? this.theme : THEMES.paper);
   }
 
   private setQuality(level: QualityLevel) {
     this.quality = QUALITY[level];
     this.renderer.applyQuality(this.quality);
     this.atmo?.applyQuality(this.quality);
-    this.seabed?.applyQuality(this.quality);
+    this.ground?.applyQuality(this.quality);
     this.particles?.setPixelRatio(Math.min(devicePixelRatio, this.quality.maxPixelRatio));
   }
 
@@ -265,19 +403,69 @@ export class Game {
     const def = UPGRADES.find((u) => u.id === id)!;
     const lvl = this.save.data.upgrades[id];
     const cost = def.costs[lvl];
-    if (cost === undefined || this.save.data.pearls < cost) return;
-    this.save.data.pearls -= cost;
+    if (cost === undefined || this.save.data.shards < cost) return;
+    this.save.data.shards -= cost;
     this.save.data.upgrades[id] = lvl + 1;
     this.save.write();
     audio.powerup();
+    this.ui.refresh();
+  }
+
+  private setLoadout(group: keyof Loadout, value: string | boolean) {
+    const s = this.save.data;
+    if (typeof value === 'string' && group !== 'callsign') {
+      const key = `${group}:${value}`;
+      const cost = costOf(group, value);
+      if (cost > 0 && !s.owned.includes(key)) {
+        if (s.shards < cost) {
+          this.ui.toast('Not enough shards', `That costs ${cost}. You have ${s.shards}.`);
+          return;
+        }
+        s.shards -= cost;
+        s.owned.push(key);
+        this.unlock('stylist');
+        audio.powerup();
+      }
+    }
+    (s.loadout as unknown as Record<string, string | boolean>)[group] = value;
+    this.save.write();
+    this.player.model.applyLoadout(s.loadout);
+    this.styler.apply(this.player.model.root);
+    if (group !== 'callsign') this.ui.refresh();
   }
 
   private unlock(id: string) {
     if (this.save.unlock(id)) {
       const a = ACHIEVEMENTS.find((x) => x.id === id);
       if (a) this.ui.toast(a.name, a.desc);
-      audio.powerup();
+      audio.chime();
     }
+  }
+
+  // ------------------------------------------------------------------ missions
+
+  private missionAdd(kind: MissionKind, n = 1) {
+    if (!this.run || this.run.tutorial >= 0) return;
+    for (const m of this.save.data.missions) if (m.kind === kind && !m.single) m.progress += n;
+    this.checkMissions();
+  }
+
+  private missionMax(kind: MissionKind, v: number) {
+    if (!this.run || this.run.tutorial >= 0) return;
+    for (const m of this.save.data.missions) if (m.kind === kind && m.single) m.progress = Math.max(m.progress, v);
+    this.checkMissions();
+  }
+
+  private checkMissions() {
+    const s = this.save.data;
+    s.missions.forEach((m, i) => {
+      if (m.progress < m.target) return;
+      s.shards += m.reward;
+      s.missionTiers[m.kind] = (s.missionTiers[m.kind] ?? 0) + 1;
+      this.ui.toast('Mission complete', `${describe(m)}  ·  +${m.reward} shards`);
+      audio.chime();
+      s.missions[i] = nextMission(s.missions, s.missionTiers);
+    });
   }
 
   // ------------------------------------------------------------------ flow
@@ -287,20 +475,15 @@ export class Game {
     this.paused = false;
     this.modeTime = 0;
     this.input.enabled = true;
+    this.loop.timeScale = 1;
     this.clearWorld();
-    this.atmo.setZone(ZONES[0], true);
-    this.seabed.setZone(ZONES[0]);
-    this.fauna.setZone(ZONES[0]);
-    this.atmo.setDepth(6000);
-    this.station.reset();
     this.player.reset(statsFor(this.save.data.upgrades));
-    this.player.pos.set(this.station.dock.x + 4, this.station.dock.y);
+    this.player.pos.set(30, 0);
     this.player.controllable = false;
     this.ui.setHudVisible(false);
     this.ui.clearOverlays();
     this.ui.fade(0);
     audio.setBossMode(false);
-    audio.setMood(MENU_MOOD);
     audio.setPaused(false);
     if (!first) this.ui.show('title');
   }
@@ -313,65 +496,71 @@ export class Game {
     if (this.boss) this.removeBoss();
   }
 
-  startRun(daily: boolean, endless: number) {
-    this.endlessLevel = endless;
+  startRun(level: number, daily: boolean, tutorial: boolean) {
+    if (this.busy) return;
+    this.busy = true;
     const seed = daily ? dailySeed() : (Math.random() * 2 ** 31) >>> 0;
     this.rnd.reseed(seed);
     this.enemies.seed(seed + 1);
     this.pickups.seed(seed + 2);
-    this.clearWorld();
-    this.run = {
-      zone: 0,
-      zoneTime: 0,
-      depth: ZONES[0].depthStart,
-      score: 0,
-      kills: 0,
-      plankton: 0,
-      pearls: 0,
-      combo: 0,
-      comboTimer: 0,
-      bestCombo: 0,
-      time: 0,
-      daily,
-      difficulty: 1 + endless * 0.6,
-      bossHullAtStart: 0,
-      dashKills: 0,
-      reveals: 0,
-      lastDepthScore: ZONES[0].depthStart,
-    };
-    this.enemyCtx.difficulty = this.bossCtx.difficulty = this.run.difficulty;
-    this.atmo.setZone(ZONES[0], true);
-    this.seabed.setZone(ZONES[0]);
-    this.fauna.setZone(ZONES[0]);
-    this.station.reset();
-    this.player.reset(statsFor(this.save.data.upgrades));
-    this.player.pos.set(this.station.dock.x + 4, this.station.dock.y);
-    this.player.controllable = false;
-    this.fireCd = this.torpedoCd = this.pingCd = 0;
-    this.save.data.stats.runs++;
-    this.save.write();
+    const next = tutorial ? THEMES.paper : this.pickTheme();
     this.ui.show('none');
-    this.ui.clearOverlays();
-    this.ui.fade(0);
-    this.ui.setHudVisible(false);
-    this.mode = 'intro';
-    this.modeTime = 0;
-    this.paused = false;
-    audio.setMood(ZONES[0].mood);
-    audio.setBossMode(false);
+    void this.ui
+      .pageTurn(next, tutorial ? 'Practice page' : `Level ${level}`, next.name, () => {
+        this.clearWorld();
+        this.run = {
+          level,
+          def: levelDef(level),
+          levelTime: 0,
+          startLevel: level,
+          distance: 0,
+          score: 0,
+          kills: 0,
+          sparks: 0,
+          shards: 0,
+          combo: 0,
+          comboTimer: 0,
+          time: 0,
+          daily,
+          bossHullAtStart: 0,
+          hurtThisLevel: false,
+          dashKills: 0,
+          dashes: 0,
+          reveals: 0,
+          flares: 0,
+          worlds: new Set(),
+          endingShown: level > STORY_END_LEVEL,
+          tutorial: tutorial ? 0 : -1,
+          tutorialCount: 0,
+        };
+        this.applyTheme(next, true);
+        this.noteWorld(next.id);
+        this.player.reset(statsFor(this.save.data.upgrades));
+        this.player.pos.set(-this.bounds.x - 40, 0);
+        this.player.controllable = false;
+        this.rig.offset.set(0, 0, 0);
+        this.rig.setZoom(1);
+        this.fireCd = this.torpedoCd = this.pingCd = 0;
+        if (!tutorial) this.save.data.stats.runs++;
+        this.save.write();
+        this.ui.clearOverlays();
+        this.ui.fade(0);
+        this.ui.setHudVisible(false);
+        this.mode = 'intro';
+        this.modeTime = 0;
+        this.paused = false;
+        audio.setBossMode(false);
+      })
+      .then(() => (this.busy = false));
   }
 
   private setPaused(p: boolean) {
-    if (!['play', 'boss', 'transition', 'surfacing'].includes(this.mode)) return;
+    if (!['play', 'boss', 'transition', 'intro'].includes(this.mode)) return;
     this.paused = p;
     audio.setPaused(p);
     this.input.releaseAll();
     if (p) this.ui.show('pause');
     else this.ui.show('none');
-  }
-
-  private get zone(): ZoneDef {
-    return ZONES[Math.min(this.run.zone, ZONES.length - 1)];
   }
 
   // ------------------------------------------------------------------ frame
@@ -386,21 +575,23 @@ export class Game {
     this.ui.tick(raw);
     this.governor.update(raw, this.loop.fps, this.quality.level);
 
-    if (this.paused) {
+    if (this.paused || this.mode === 'ending') {
+      this.styler.sync();
       this.renderer.render(0);
       this.input.endFrame();
       return;
     }
-
-    // Hit-stop: freeze gameplay for a few frames on big impacts.
     if (this.hitStop > 0) {
       this.hitStop -= raw;
       dt *= 0.05;
     }
-
     this.modeTime += dt;
     switch (this.mode) {
+      case 'boot':
+      case 'story':
       case 'menu':
+      case 'hangar':
+      case 'victory':
         this.updateMenu(dt);
         break;
       case 'intro':
@@ -408,185 +599,164 @@ export class Game {
         break;
       case 'play':
       case 'boss':
-        this.updatePlay(dt);
-        break;
       case 'transition':
-        this.updateTransition(dt);
-        break;
-      case 'surfacing':
-        this.updateSurfacing(dt);
+        this.updatePlay(dt);
         break;
       case 'dead':
         this.updateDead(dt);
         break;
-      case 'victory':
-        this.updateWorld(dt, 10);
-        break;
     }
-
-    this.player.animate(dt, this.atmo.darkness);
+    this.player.animate(dt, this.theme.beam * (0.4 + this.atmo.darkness * 0.6));
     this.flash.update(dt);
     this.telegraph.update(dt);
-    this.particles.update(dt, this.seabed.worldScroll);
+    this.particles.update(dt, this.ground.worldScroll);
     this.rig.update(dt, this.player.pos.x, this.player.pos.y);
+    this.styler.sync();
     this.renderer.render(dt);
     this.input.endFrame();
   }
 
-  /** Background systems that run in every mode. */
   private updateWorld(dt: number, speed: number) {
     this.scrollSpeed = damp(this.scrollSpeed, speed, 1.5, dt);
-    this.atmo.update(dt, this.scrollSpeed, this.mode === 'menu' ? 4 : 18 + this.scrollSpeed * 0.1);
-    this.seabed.update(dt, this.scrollSpeed);
+    this.atmo.update(dt, this.scrollSpeed);
+    this.ground.update(dt, this.scrollSpeed);
     this.fauna.update(dt, this.modeTime, this.scrollSpeed);
-    this.station.root.position.x -= this.scrollSpeed * dt;
-    this.station.root.visible = this.station.root.position.x > -900;
+    this.clouds.update(dt, this.scrollSpeed);
   }
 
   private updateMenu(dt: number) {
-    this.updateWorld(dt, 0);
-    this.station.update(dt, 0);
-    // Camera frames the docked capsule on the right side of the screen.
-    this.rig.offset.set(this.station.dock.x - 48 + Math.sin(this.modeTime * 0.15) * 8, this.station.dock.y + 16, -105);
-    this.player.update(dt, this.input, this.bounds, 0, -999);
-    this.player.pos.set(this.station.dock.x + 4, this.station.dock.y + Math.sin(this.modeTime * 1.2) * 1.2);
-    this.player.model.root.position.set(this.player.pos.x, this.player.pos.y, 0);
+    const hangar = this.mode === 'hangar';
+    this.updateWorld(dt, hangar ? 0 : 22);
+    const p = this.player;
+    p.update(dt, this.input, this.bounds, 0, -999);
+    const narrow = window.innerWidth < 760;
+    const tx = hangar ? (narrow ? 0 : -this.bounds.x * 0.18) : narrow ? 0 : this.bounds.x * 0.08;
+    const ty = hangar ? (narrow ? 30 : 4) : narrow ? 25 : 6;
+    p.pos.set(damp(p.pos.x, tx, 3, dt), damp(p.pos.y, ty + Math.sin(this.modeTime * 1.1) * 3, 3, dt));
+    p.model.root.position.set(p.pos.x, p.pos.y, 0);
+    if (hangar) p.model.root.rotation.y += dt * 0.45;
+    else p.model.root.rotation.y = damp(p.model.root.rotation.y % (Math.PI * 2), Math.sin(this.modeTime * 0.3) * 0.25, 2, dt);
+    this.rig.setZoom(hangar ? 2.3 : 1.15);
+    this.rig.offset.set(hangar ? p.pos.x * 0.6 - (narrow ? 0 : 0) : 0, hangar ? p.pos.y * 0.5 : 0, 0);
+    if (this.mode === 'menu') this.emitTrail(dt * 0.6);
   }
 
   private updateIntro(dt: number) {
-    const t = this.modeTime;
-    const st = this.station;
-    this.updateWorld(dt, t < 2.6 ? 0 : BASE_SPEED * 0.6);
-    st.update(dt, 1);
-    // 0-2.6 s: alarms, explosions across the station. 2.6 s: launch.
-    if (t < 2.6) {
-      this.rig.offset.set(st.dock.x + 40, st.dock.y + 22, -95);
-      if (Math.random() < dt * 5) {
-        const h = st.hotspots[Math.floor(Math.random() * st.hotspots.length)];
-        this.v3.set(h.x + st.root.position.x + (Math.random() - 0.5) * 60, h.y + (Math.random() - 0.5) * 20, h.z + 10);
-        this.particles.explosion(this.v3, 0xff8a3a, 1.2);
-        this.flash.trigger(this.v3.x, this.v3.y, 0xff8a3a, 1.2);
-        this.rig.addTrauma(0.35);
-        audio.explode(1);
-      }
-      if (Math.random() < dt * 2) audio.alarm();
-      this.player.pos.set(st.dock.x + 4 + Math.sin(t * 40) * 0.4, st.dock.y);
-      this.player.model.root.position.set(this.player.pos.x, this.player.pos.y, 0);
-      if (t > 0.1 && t - dt <= 0.1) this.ui.hint('Hull integrity failing. Launching escape capsule.', 2.4);
-    } else {
-      if (t - dt < 2.6) {
-        audio.launch();
-        this.rig.addTrauma(0.8);
-        this.player.vel.set(520, 60);
-        this.v3.set(st.dock.x + 10, st.dock.y, 0);
-        this.particles.bubbles(this.v3, 80, 14, 3);
-        this.particles.burst(this.v3, { count: 40, color: 0xffffff, speed: 200, size: 10, life: 0.6, dir: new Vector3(-1, 0, 0) });
-        st.collapse = 1;
-      }
-      // Ease the camera from the station close-up to the gameplay framing.
-      const k = easeOutCubic(clamp((t - 2.6) / 1.6, 0, 1));
-      this.rig.offset.set((st.dock.x + 40) * (1 - k), (st.dock.y + 22) * (1 - k), -95 * (1 - k));
-      this.player.vel.multiplyScalar(Math.exp(-2.2 * dt));
-      this.player.pos.addScaledVector(this.player.vel, dt);
-      this.player.model.root.position.set(this.player.pos.x, this.player.pos.y, 0);
-      this.particles.bubbles(this.v3.set(this.player.pos.x - 16, this.player.pos.y, 0), 2, 3, 2);
-      if (t > 4.4) {
-        this.rig.offset.set(0, 0, 0);
-        this.mode = 'play';
-        this.modeTime = 0;
-        this.player.controllable = true;
-        this.ui.setHudVisible(true, this.input.isTouch);
-        this.ui.card(this.zone.name, `${this.zone.tagline}  ·  ${this.zone.depthStart.toLocaleString('en-US')} m`);
-        audio.zoneEnter();
-        this.unlock('ejected');
-        this.firstRunHints();
+    const def = this.run.def;
+    this.updateWorld(dt, BASE_SPEED * def.scroll);
+    const p = this.player;
+    const k = easeOutCubic(clamp(this.modeTime / 1.3, 0, 1));
+    p.pos.set(-this.bounds.x - 40 + (this.bounds.x - 20) * k, Math.sin(this.modeTime * 2) * 6);
+    p.model.root.position.set(p.pos.x, p.pos.y, 0);
+    p.model.root.rotation.set(0, 0, 0);
+    this.emitTrail(dt * 2);
+    if (this.modeTime > 1.35) {
+      this.mode = 'play';
+      this.modeTime = 0;
+      p.controllable = true;
+      p.vel.set(120, 0);
+      this.ui.setHudVisible(true, this.input.isTouch);
+      audio.zoneEnter();
+      this.unlock('ejected');
+      if (this.run.tutorial >= 0) this.tutorialStep(0);
+      else {
+        const t = this.theme;
+        this.ui.card(t.name, t.line, def.boss ? `Level ${def.n} · Boss level` : `Level ${def.n}`);
+        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. Fire is automatic.' : 'Move with the mouse. Hold left click or Space to fire.', 5);
       }
     }
   }
 
-  private firstRunHints() {
-    if (!this.save.data.settings.hints) return;
-    this.hints.clear();
-    const touch = this.input.isTouch;
-    this.ui.hint(touch ? 'Drag to steer. Auto-fire is on.' : 'Move with the mouse. Hold left click or Space to fire.', 5);
-  }
-
   private hintOnce(key: string, text: string, seconds = 5) {
-    if (!this.save.data.settings.hints || this.hints.has(key)) return;
+    if (!this.save.data.settings.hints || this.hints.has(key) || this.run.tutorial >= 0) return;
     this.hints.add(key);
     this.ui.hint(text, seconds);
   }
 
   private updatePlay(dt: number) {
     const run = this.run;
-    const zone = this.zone;
+    const def = run.def;
     const inBoss = this.mode === 'boss';
+    const transition = this.mode === 'transition';
+    const tut = run.tutorial >= 0;
+    const diff = DIFFICULTY[this.save.data.settings.difficulty];
     run.time += dt;
-    const speed = inBoss ? BASE_SPEED * 0.3 : BASE_SPEED * (1 + run.zone * 0.08) * (1 + (run.difficulty - 1) * 0.15);
+    const speed = inBoss ? BASE_SPEED * 0.3 : BASE_SPEED * def.scroll;
     this.updateWorld(dt, speed);
-    this.station.update(dt, 1);
+    run.distance += this.scrollSpeed * dt * 0.12;
 
-    // Progress through the zone.
-    if (!inBoss) {
-      run.zoneTime += dt;
-      const progress = clamp(run.zoneTime / zone.duration, 0, 1);
-      run.depth = depthAt(zone, progress);
-      if (progress >= 1) this.startBoss();
-    }
-    this.atmo.setDepth(run.depth);
-    if (run.lastDepthScore - run.depth >= 10) {
-      run.score += Math.floor((run.lastDepthScore - run.depth) / 10) * 5;
-      run.lastDepthScore = run.depth;
+    if (!inBoss && !transition && !tut) {
+      run.levelTime += dt;
+      if (run.levelTime >= def.duration) {
+        if (def.boss) this.startBoss();
+        else this.levelComplete();
+      }
     }
 
-    // Player and resources.
-    const floor = this.seabed.floorAt(this.player.pos.x);
-    this.player.update(dt, this.input, this.bounds, zone.current, floor);
-    this.player.breathe(dt, inBoss ? 0.6 : 1);
-    // Scraping the seabed at speed throws up silt.
-    if (this.player.pos.y - this.player.radius < floor + 4 && Math.random() < dt * 30) {
-      this.particles.burst(this.v3.set(this.player.pos.x, floor + 2, 6), { count: 2, color: 0x6a6258, speed: 20, size: 14, life: 1.4, smoke: true });
-    }
+    const p = this.player;
+    const floor = this.ground.floorAt(p.pos.x);
+    p.update(dt, this.input, this.bounds, def.current, floor);
+    if (!tut && !transition) p.breathe(dt, diff.drain * (inBoss ? 0.6 : 1));
+    if (tut) p.hull = Math.max(p.hull, 30);
     this.handleAbilities(dt);
+    this.emitTrail(dt);
 
-    // Ambient bubbles from the thrusters.
-    if (Math.random() < dt * 30) {
-      const port = this.player.model.exhaustPorts[Math.random() < 0.5 ? 0 : 1];
-      port.getWorldPosition(this.v3);
-      this.particles.bubbles(this.v3, 1, 1.5, 1.6);
-    }
-
-    // Spawning.
     this.enemyCtx.scrollSpeed = this.scrollSpeed;
     this.enemyCtx.darkness = this.atmo.darkness;
-    const progress = clamp(run.zoneTime / zone.duration, 0, 1);
-    this.enemies.direct(dt, zone, progress, this.enemyCtx, !inBoss && progress < 0.97);
-    const p = this.player;
-    this.pickups.direct(
-      dt,
-      this.bounds,
-      true,
-      { ammo: p.ammo / p.stats.maxAmmo, hull: p.hull / p.stats.maxHull, oxygen: p.oxygen / p.stats.maxOxygen },
-      inBoss ? 0 : 0.6,
-    );
+    this.enemyCtx.difficulty = def.bulletSpeed;
+    const progress = clamp(run.levelTime / def.duration, 0, 1);
+    this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.97, diff.spawn);
+    if (!tut)
+      this.pickups.direct(
+        dt,
+        this.bounds,
+        !transition,
+        { ammo: p.ammo / p.stats.maxAmmo, hull: p.hull / p.stats.maxHull, oxygen: p.oxygen / p.stats.maxOxygen },
+        inBoss ? 0 : 0.6,
+      );
 
     this.updateCombat(dt);
 
-    // Combo decay.
     if (run.combo > 0) {
       run.comboTimer -= dt;
       if (run.comboTimer <= 0) run.combo = 0;
     }
 
-    // Hints that react to the situation.
-    if (p.oxygen < p.stats.maxOxygen * 0.35) this.hintOnce('o2', 'Oxygen low. Collect the glowing plankton.');
-    if (p.lumen >= 1) this.hintOnce('flare', this.input.isTouch ? 'Lumen full: tap FLARE to clear the screen.' : 'Lumen full: press Q to unleash a Bioflare.');
-    if (run.time > 14 && zone.darkness > 0.5) this.hintOnce('ping', this.input.isTouch ? 'Tap PING to reveal hidden creatures and pearls.' : 'Press E or right-click to ping. It reveals hidden creatures and pearls.', 6);
-    if (p.hull < p.stats.maxHull * 0.35) this.hintOnce('hull', 'Hull damaged. Orange crates repair it.');
-    if (p.oxygen < p.stats.maxOxygen * 0.2) audio.alarm();
-
+    if (tut) this.updateTutorial();
+    else {
+      if (p.oxygen < p.stats.maxOxygen * 0.35) this.hintOnce('o2', 'Your light is fading. Collect glowing sparks.');
+      if (p.lumen >= 1) this.hintOnce('flare', this.input.isTouch ? 'Flare ready: tap FLARE to clear the screen.' : 'Flare ready: press Q to clear the screen.');
+      if (run.time > 14 && this.atmo.darkness > 0.5) this.hintOnce('ping', 'It is dark here. Pulse (E or right click) to reveal what hides.', 6);
+      if (p.hull < p.stats.maxHull * 0.35) this.hintOnce('hull', 'Hull damaged. Look for repair kits.');
+      if (p.oxygen < p.stats.maxOxygen * 0.2) audio.alarm();
+    }
     if (!p.alive) this.onDeath();
     this.pushHud();
+  }
+
+  private emitTrail(dt: number) {
+    const style = this.save.data.loadout.trail;
+    if (style === 'none') return;
+    this.trailAcc += dt * 30;
+    while (this.trailAcc >= 1) {
+      this.trailAcc -= 1;
+      const port = this.player.model.exhaustPorts[Math.random() < 0.5 ? 0 : 1];
+      port.getWorldPosition(this.v3);
+      switch (style) {
+        case 'bubbles':
+          this.particles.bubbles(this.v3, 1, 1.5, 1.6);
+          break;
+        case 'sparkle':
+          this.particles.burst(this.v3, { count: 1, color: 0xffd98a, speed: 20, size: 3, life: 0.6, drag: 3, spread: 1.5 });
+          break;
+        case 'confetti':
+          this.particles.burst(this.v3, { count: 1, color: [0xe4572e, 0xf3a712, 0x2f8fe8, 0x4f8a3c][Math.floor(Math.random() * 4)], speed: 25, size: 3.4, life: 1.1, drag: 2, gravity: -20, smoke: true });
+          break;
+        case 'ink':
+          this.particles.burst(this.v3, { count: 1, color: 0x15151a, speed: 10, size: 4, life: 1, drag: 2, gravity: -40, smoke: true });
+          break;
+      }
+    }
   }
 
   private handleAbilities(dt: number) {
@@ -606,11 +776,11 @@ export class Game {
         if (p.powerups.spread > 0) {
           for (const a of [-0.14, 0, 0.14]) this.projectiles.fire('bolt', this.v3.x, this.v3.y, Math.cos(a) * FIRE_SPEED, Math.sin(a) * FIRE_SPEED, dmg);
         } else this.projectiles.fire('bolt', this.v3.x, this.v3.y, FIRE_SPEED, 0, dmg);
-        this.particles.burst(this.v3, { count: 3, color: 0x7ffff0, speed: 40, size: 5, life: 0.2, dir: new Vector3(1, 0, 0) });
+        this.particles.burst(this.v3, { count: 3, color: 0xfff2c8, speed: 40, size: 5, life: 0.2, dir: new Vector3(1, 0, 0) });
         audio.shoot();
       } else {
         this.fireCd = 0.3;
-        this.hintOnce('ammo', 'Out of sonar charge. It recharges slowly, or grab a violet canister.', 3);
+        this.hintOnce('ammo', 'Out of pulse charge. It refills slowly, or grab a violet canister.', 3);
       }
     }
     if (p.powerups.torpedo > 0 && this.torpedoCd <= 0) {
@@ -620,15 +790,14 @@ export class Game {
     }
     if (input.consume('dash') && p.tryDash()) {
       audio.dash();
-      this.particles.bubbles(this.v3.set(p.pos.x - 10, p.pos.y, 0), 26, 8, 2.6);
+      this.run.dashes++;
+      this.particles.bubbles(this.v3.set(p.pos.x - 10, p.pos.y, 0), 20, 8, 2.6);
       this.rig.addTrauma(0.15);
     }
-    if (input.consume('ping')) {
-      if (this.pingCd <= 0) {
-        this.pingCd = PING_COOLDOWN;
-        this.ping.start(p.pos.x, p.pos.y);
-        audio.ping();
-      }
+    if (input.consume('ping') && this.pingCd <= 0) {
+      this.pingCd = PING_COOLDOWN;
+      this.ping.start(p.pos.x, p.pos.y);
+      audio.ping();
     }
     if (input.consume('flare') && p.lumen >= 1) this.bioflare();
   }
@@ -636,9 +805,12 @@ export class Game {
   private bioflare() {
     const p = this.player;
     p.lumen = 0;
+    this.run.flares++;
+    this.save.data.stats.flares++;
+    this.missionAdd('flare');
     audio.flare();
     this.flash.trigger(p.pos.x, p.pos.y, 0xfff4d0, 4);
-    this.ui.fade(0.8);
+    this.ui.fade(0.75);
     setTimeout(() => this.ui.fade(0), 120);
     this.rig.addTrauma(0.6);
     this.v3.set(p.pos.x, p.pos.y, 0);
@@ -652,11 +824,14 @@ export class Game {
 
   private updateCombat(dt: number) {
     const p = this.player;
-    // Sonar ping reveals as the ring expands.
     if (this.ping.active) {
       this.ping.update(dt);
       const n = this.enemies.reveal(this.ping.mesh.position.x, this.ping.mesh.position.y, this.ping.radius);
-      this.run.reveals += n;
+      if (n) {
+        this.run.reveals += n;
+        this.save.data.stats.reveals += n;
+        this.missionAdd('reveal', n);
+      }
       this.pickups.reveal(this.ping.mesh.position.x, this.ping.mesh.position.y, this.ping.radius);
     }
 
@@ -666,7 +841,6 @@ export class Game {
     });
     this.enemies.update(dt, this.enemyCtx);
 
-    // Player shots vs enemies and boss.
     for (const s of this.projectiles.shots.items) {
       if (!s.active) continue;
       let consumed = false;
@@ -675,7 +849,7 @@ export class Game {
         const r = e.radius + 3;
         if (segDist2(s.prev.x, s.prev.y, s.pos.x, s.pos.y, e.pos.x, e.pos.y) < r * r) {
           this.enemies.hit(e, s.damage, this.enemyCtx, true);
-          this.particles.burst(this.v3.set(s.pos.x, s.pos.y, 0), { count: 6, color: 0x7ffff0, speed: 90, size: 4, life: 0.3 });
+          this.particles.burst(this.v3.set(s.pos.x, s.pos.y, 0), { count: 6, color: 0xfff2c8, speed: 90, size: 4, life: 0.3 });
           audio.enemyHit();
           consumed = true;
           break;
@@ -693,28 +867,26 @@ export class Game {
       if (consumed) s.active = false;
     }
 
-    // Hostile bullets vs the pod.
     if (p.alive) {
       for (const b of this.projectiles.bullets.items) {
         if (!b.active || b.damage <= 0) continue;
         const r = b.radius + p.radius * 0.72;
         if ((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2 < r * r) {
           b.active = false;
-          if (b.kind === 'ink') this.ui.darken(0.5, 1.5);
+          if (b.kind === 'ink') this.ui.darken(0.45, 1.5);
           this.hurt(b.damage, 'hull');
         }
       }
     }
 
-    // Boss.
     if (this.boss) {
       this.boss.update(dt, this.bossCtx);
-      this.ui.bossBar(this.boss.name, this.zone.bossTitle, this.boss.hp / this.boss.maxHp);
+      this.ui.bossBar(this.boss.name, this.run.def.boss?.title ?? '', this.boss.hp / this.boss.maxHp);
       if (p.alive && this.boss.state === 'fight') {
-        for (const h of this.boss.hitboxes) {
-          if (!h.harmful) continue;
-          const r = h.r + p.radius * 0.8;
-          if ((h.x - p.pos.x) ** 2 + (h.y - p.pos.y) ** 2 < r * r) {
+        for (const hb of this.boss.hitboxes) {
+          if (!hb.harmful) continue;
+          const r = hb.r + p.radius * 0.8;
+          if ((hb.x - p.pos.x) ** 2 + (hb.y - p.pos.y) ** 2 < r * r) {
             this.hurt(20, 'hull');
             p.vel.x -= 300;
             break;
@@ -724,10 +896,8 @@ export class Game {
       if (this.boss.state === 'dead') this.onBossDefeated();
     }
 
-    // Pickups.
     const magnet = Math.max(p.powerups.magnet > 0 ? 170 : 0, p.stats.magnetRadius);
     this.pickups.update(dt, this.scrollSpeed, this.bounds, p.pos.x, p.pos.y, magnet, p.radius + 9, (it) => this.collect(it));
-
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.5);
     this.ui.vignette(this.damageFlash, p.oxygen < p.stats.maxOxygen * 0.2 && p.alive);
   }
@@ -750,8 +920,10 @@ export class Game {
   private hurt(amount: number, cause: 'hull' | 'oxygen' | 'crushed') {
     const p = this.player;
     const hadShield = p.shieldCharges > 0;
-    const dealt = p.damage(amount, cause);
+    const scaled = amount * DIFFICULTY[this.save.data.settings.difficulty].damageTaken;
+    const dealt = p.damage(scaled, cause);
     if (dealt > 0) {
+      this.run.hurtThisLevel = true;
       this.damageFlash = 1;
       this.rig.addTrauma(0.45);
       this.hitStop = 0.06;
@@ -770,8 +942,7 @@ export class Game {
     this.rig.addTrauma(0.4);
     audio.explode(1.2);
     const p = this.player;
-    if (Math.hypot(p.pos.x - x, p.pos.y - y) < radius + p.radius) this.hurt(damage, 'hull');
-    // Chain reactions: blasts damage other creatures.
+    if (Math.hypot(p.pos.x - x, p.pos.y - y) < radius + p.radius) this.hurt(damage * (this.run?.def.enemyDamage ?? 1), 'hull');
     for (const e of this.enemies.list) {
       if (e.active && Math.hypot(e.pos.x - x, e.pos.y - y) < radius + e.radius) this.enemies.hit(e, 5, this.enemyCtx, true);
     }
@@ -781,14 +952,19 @@ export class Game {
     if (!byPlayer) return;
     const run = this.run;
     run.kills++;
-    const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (run.difficulty - 1) * 0.25));
+    run.tutorialCount++;
+    const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (run.level - 1) * 0.08));
     run.score += pts;
     this.player.lumen = Math.min(1, this.player.lumen + 0.035 * lumenGain(this.save.data.upgrades));
     if (this.player.dashing) {
       run.dashKills++;
-      this.popupAt(e.pos.x, e.pos.y, 'RAM!', '#ffc35a');
-    } else this.popupAt(e.pos.x, e.pos.y, `+${pts}`, '#e3eef8');
+      this.save.data.stats.dashKills++;
+      this.missionAdd('dash');
+      if (this.save.data.stats.dashKills >= 25) this.unlock('dasher');
+      this.popupAt(e.pos.x, e.pos.y, 'Ram!');
+    } else this.popupAt(e.pos.x, e.pos.y, `+${pts}`);
     this.save.data.stats.kills++;
+    this.missionAdd('kills');
   }
 
   private collect(it: Pickup) {
@@ -799,31 +975,35 @@ export class Game {
       case 'plankton': {
         run.combo = run.comboTimer > 0 ? run.combo + 1 : 1;
         run.comboTimer = 1.5;
-        run.bestCombo = Math.max(run.bestCombo, run.combo);
         if (run.combo >= 40) this.unlock('combo');
-        run.plankton++;
+        this.missionMax('combo', run.combo);
+        run.sparks++;
+        run.tutorialCount++;
         p.addOxygen(5.5);
         p.lumen = Math.min(1, p.lumen + 0.022 * (1 + run.combo * 0.04) * lumenGain(this.save.data.upgrades));
         run.score += 10 * run.combo;
         audio.pickup(run.combo);
-        this.particles.burst(this.v3, { count: 8, color: 0x2ef2c8, speed: 60, size: 5, life: 0.4 });
+        this.missionAdd('sparks');
+        this.particles.burst(this.v3, { count: 8, color: 0xfff2b0, speed: 60, size: 5, life: 0.4 });
         break;
       }
       case 'ammo':
         p.ammo = Math.min(p.stats.maxAmmo, p.ammo + 22);
         audio.ammo();
-        this.popupAt(it.pos.x, it.pos.y, '+22 sonar', '#b48cff');
+        this.popupAt(it.pos.x, it.pos.y, '+22 charge');
         break;
       case 'repair':
         p.repair(30);
         audio.powerup();
-        this.popupAt(it.pos.x, it.pos.y, '+30 hull', '#ff9a5a');
+        this.popupAt(it.pos.x, it.pos.y, '+30 hull');
         break;
       case 'pearl':
-        run.pearls++;
+        run.shards++;
         run.score += 500;
-        audio.powerup();
-        this.popupAt(it.pos.x, it.pos.y, 'Pearl', '#fff4ee');
+        run.tutorialCount++;
+        audio.chime();
+        this.popupAt(it.pos.x, it.pos.y, 'Shard!');
+        this.missionAdd('shards');
         this.particles.burst(this.v3, { count: 30, color: 0xfff0f6, speed: 120, size: 6, life: 0.8 });
         break;
       default: {
@@ -831,31 +1011,39 @@ export class Game {
         if (kind === 'shield') p.shieldCharges = 3;
         else p.powerups[kind] = 10;
         audio.powerup();
-        this.popupAt(it.pos.x, it.pos.y, POWERUP_INFO[kind].label, '#' + POWERUP_INFO[kind].color.toString(16).padStart(6, '0'));
+        this.save.data.stats.powerups++;
+        this.missionAdd('powerups');
+        this.popupAt(it.pos.x, it.pos.y, POWERUP_INFO[kind].label);
       }
     }
   }
 
-  private popupAt(x: number, y: number, text: string, color: string) {
+  private popupAt(x: number, y: number, text: string) {
     this.v3.set(x, y, 0).project(this.renderer.camera);
-    this.ui.popup(text, ((this.v3.x + 1) / 2) * window.innerWidth, ((1 - this.v3.y) / 2) * window.innerHeight, color);
+    this.ui.popup(text, ((this.v3.x + 1) / 2) * window.innerWidth, ((1 - this.v3.y) / 2) * window.innerHeight);
   }
 
-  // ------------------------------------------------------------------ bosses & zones
+  // ------------------------------------------------------------------ levels & bosses
 
   private startBoss() {
-    const zone = this.zone;
+    const info = this.run.def.boss!;
     this.mode = 'boss';
-    this.boss = createBoss(zone.boss, this.run.difficulty);
+    this.boss = createBoss(info.kind, this.run.def.bossDifficulty);
     this.scene.add(this.boss.root);
     for (const x of this.boss.extras ?? []) this.scene.add(x);
+    this.styler.apply(this.boss.root);
+    for (const x of this.boss.extras ?? []) this.styler.apply(x);
     this.boss.enter(this.bounds);
     this.run.bossHullAtStart = this.player.hull;
-    this.ui.card(zone.bossName, zone.bossTitle, true);
+    this.ui.card(info.name, info.title, 'The Blot takes shape');
     audio.bossRoar();
     audio.setBossMode(true);
     this.rig.addTrauma(0.5);
-    this.renderer.compile();
+    try {
+      this.renderer.compile();
+    } catch {
+      /* optional */
+    }
   }
 
   private removeBoss() {
@@ -867,91 +1055,153 @@ export class Game {
   }
 
   private onBossDefeated() {
-    const zone = this.zone;
     const run = this.run;
-    run.score += 5000 * (run.zone + 1);
-    run.pearls += 3;
+    const info = run.def.boss!;
+    run.score += 5000 * Math.ceil(run.level / 3);
+    run.shards += 3;
     this.player.repair(30);
     this.player.addOxygen(40);
     this.save.data.stats.bosses++;
-    this.unlock('boss_' + zone.boss);
+    this.missionAdd('bosses');
+    this.unlock('boss_' + info.kind);
     if (this.player.hull >= run.bossHullAtStart) this.unlock('untouchable');
     this.removeBoss();
     audio.setBossMode(false);
-    this.popupAt(0, 0, '+3 pearls', '#fff4ee');
-    if (run.zone + 1 >= ZONES.length) {
-      this.mode = 'surfacing';
-      this.modeTime = 0;
-      this.player.controllable = false;
-      audio.setMood(SURFACE_MOOD);
-      this.ui.bossBar(null);
+    this.popupAt(0, 0, '+3 shards');
+    if (run.level >= STORY_END_LEVEL && !run.endingShown) {
+      run.endingShown = true;
+      this.save.data.stats.victories++;
+      this.unlock('surface');
+      this.lastBankedShards = run.shards;
+      this.lastTime = run.time;
+      this.prevBest = this.save.data.best.score;
+      this.bank();
+      this.ui.setHudVisible(false);
+      this.playStory('ending');
       return;
     }
-    this.mode = 'transition';
-    this.modeTime = 0;
-    this.zoneAdvanced = false;
+    this.levelComplete();
   }
 
-  private updateTransition(dt: number) {
-    // A short breather while the water changes colour around you.
-    this.updateWorld(dt, BASE_SPEED * 1.6);
-    this.player.update(dt, this.input, this.bounds, 0, this.seabed.floorAt(this.player.pos.x));
-    this.handleAbilities(dt);
-    this.updateCombat(dt);
-    this.pushHud();
-    if (this.modeTime > 0.6 && !this.zoneAdvanced) {
-      this.zoneAdvanced = true;
-      this.run.zone++;
-      this.run.zoneTime = 0;
-      const z = this.zone;
-      this.atmo.setZone(z);
-      this.seabed.setZone(z);
-      this.fauna.setZone(z);
-      audio.setMood(z.mood);
-      audio.zoneEnter();
-      this.ui.card(z.name, `${z.tagline}  ·  ${z.depthStart.toLocaleString('en-US')} m`);
-      if (this.run.zone === 2 && this.run.depth <= 2000) this.unlock('deep_breath');
-    }
-    if (this.modeTime > 3.2) {
-      this.mode = 'play';
-      this.modeTime = 0;
-    }
-  }
-
-  private zoneAdvanced = false;
-
-  private updateSurfacing(dt: number) {
+  /** Gate reached: bank progress, turn the page to the next level and world. */
+  private levelComplete() {
     const run = this.run;
-    const t = this.modeTime;
-    run.depth = Math.max(0, damp(run.depth, -20, 0.9, dt));
-    this.atmo.setDepth(run.depth);
-    this.updateWorld(dt, BASE_SPEED * 0.8);
-    this.updateCombat(dt);
-    const p = this.player;
-    p.update(dt, this.input, this.bounds, 0, -999);
-    p.pos.x = damp(p.pos.x, 0, 1.2, dt);
-    p.pos.y = damp(p.pos.y, 40 + t * 30, 1.2, dt);
-    p.model.root.position.set(p.pos.x, p.pos.y, 0);
-    this.rig.setZoom(1 + Math.min(0.35, t * 0.08));
-    if (Math.random() < dt * 40) this.particles.bubbles(this.v3.set(p.pos.x + (Math.random() - 0.5) * 30, p.pos.y - 10, 0), 2, 6, 2.5);
-    this.pushHud();
-    if (t > 3.2 && t - dt <= 3.2) audio.surface();
-    if (t > 3.2) this.ui.fade(Math.min(1, (t - 3.2) / 0.8));
-    if (t > 4.4) this.onVictory();
+    if (!run.hurtThisLevel) this.missionAdd('clean');
+    run.score += 1000 * run.level;
+    run.level++;
+    run.def = levelDef(run.level);
+    run.levelTime = 0;
+    run.hurtThisLevel = false;
+    this.missionMax('level', run.level);
+    if (run.level > this.save.data.highestLevel) this.save.data.highestLevel = run.level;
+    this.save.write();
+    this.mode = 'transition';
+    this.projectiles.clearBullets();
+    this.telegraph.clear();
+    const next = this.pickTheme();
+    void this.ui
+      .pageTurn(next, `Level ${run.level}`, run.def.boss ? 'Boss level' : next.name, () => {
+        this.enemies.clear();
+        this.pickups.clear();
+        this.applyTheme(next, true);
+        this.noteWorld(next.id);
+        this.ui.setHudVisible(true, this.input.isTouch);
+      })
+      .then(() => {
+        if (this.mode !== 'transition') return;
+        this.mode = 'play';
+        this.modeTime = 0;
+        audio.zoneEnter();
+        this.ui.card(next.name, next.line, run.def.boss ? `Level ${run.level} · Boss level` : `Level ${run.level}`);
+      });
   }
 
-  private onVictory() {
-    this.mode = 'victory';
+  // ------------------------------------------------------------------ tutorial
+
+  private tutorialSteps: TutorialStep[] = [
+    {
+      title: 'Fly',
+      text: (t) => (t ? 'Drag anywhere to steer the cube. Collect 6 glowing sparks.' : 'The cube follows your mouse (or use WASD). Collect 6 glowing sparks.'),
+      setup: (g) => {
+        g.run.tutorialCount = 0;
+        g.pickups.spawnPattern(g.bounds.x * 0.3, g.bounds);
+      },
+      done: (g) => g.run.tutorialCount >= 6 || (g.modeTime > 14 && g.run.tutorialCount >= 2),
+    },
+    {
+      title: 'Fire',
+      text: (t) => (t ? 'Fire is automatic on touch. Destroy 3 creatures.' : 'Hold left click or Space to fire. Destroy 3 creatures.'),
+      setup: (g) => {
+        g.run.tutorialCount = 0;
+        for (let i = 0; i < 3; i++) g.enemies.spawn('urchin', g.bounds.x * (0.6 + i * 0.25), (i - 1) * 40, 1);
+      },
+      done: (g) => g.run.tutorialCount >= 3 || g.enemies.activeCount === 0,
+    },
+    {
+      title: 'Dash',
+      text: (t) => (t ? 'Tap DASH to burst forward. You can ram straight through small creatures.' : 'Press Shift to dash. You are briefly untouchable and can ram straight through creatures.'),
+      setup: (g) => {
+        g.run.dashes = 0;
+        g.run.dashKills = 0;
+        g.enemies.spawn('jelly', g.bounds.x * 0.5, 0, 1);
+        g.enemies.spawn('jelly', g.bounds.x * 0.8, 30, 1);
+      },
+      done: (g) => g.run.dashKills >= 1 || g.run.dashes >= 3,
+    },
+    {
+      title: 'Pulse',
+      text: (t) => (t ? 'Shards hide almost invisibly. Tap PULSE to reveal one, then collect it.' : 'Shards hide almost invisibly. Press E or right click to pulse, then collect the shard.'),
+      setup: (g) => {
+        g.run.tutorialCount = 0;
+        g.pickups.spawn('pearl', g.bounds.x * 0.7, -20);
+      },
+      done: (g) => g.run.tutorialCount >= 1 || !g.pickups.items.some((p) => p.active && p.kind === 'pearl'),
+    },
+    {
+      title: 'Bioflare',
+      text: (t) => (t ? 'Sparks charge your flare ring. It is full now: tap FLARE to clear the swarm.' : 'Sparks charge your flare ring. It is full now: press Q to clear the swarm.'),
+      setup: (g) => {
+        g.run.flares = 0;
+        g.player.lumen = 1;
+        for (let i = 0; i < 5; i++) g.enemies.spawn('lanternfish', g.bounds.x + 20 + i * 18, (i - 2) * 22, 1);
+      },
+      done: (g) => g.run.flares >= 1,
+    },
+  ];
+
+  private tutorialStep(i: number) {
+    this.run.tutorial = i;
     this.modeTime = 0;
-    this.rig.setZoom(1);
-    this.ui.setHudVisible(false);
-    this.save.data.stats.victories++;
-    this.unlock('surface');
-    if (this.run.daily) this.unlock('daily');
-    const summary = this.commitRun(true, false);
-    setTimeout(() => this.ui.fade(0), 400);
-    this.ui.showVictory(summary);
+    const s = this.tutorialSteps[i];
+    s.setup(this);
+    this.ui.coach({ title: s.title, text: s.text(this.input.isTouch), index: i, total: this.tutorialSteps.length }, () => this.finishTutorial());
   }
+
+  private updateTutorial() {
+    const i = this.run.tutorial;
+    const s = this.tutorialSteps[i];
+    if (!s) return;
+    if (s.done(this)) {
+      audio.chime();
+      if (i + 1 < this.tutorialSteps.length) this.tutorialStep(i + 1);
+      else this.finishTutorial();
+    }
+  }
+
+  private finishTutorial() {
+    if (this.run.tutorial < 0) return;
+    this.ui.coach(null);
+    this.save.data.tutorialDone = true;
+    this.save.write();
+    this.ui.toast('Tutorial complete', 'The first real page is next. Good luck.');
+    this.run.tutorial = -1;
+    this.run.level = 0;
+    this.run.startLevel = 1;
+    this.save.data.stats.runs++;
+    this.levelComplete();
+  }
+
+  // ------------------------------------------------------------------ endings
 
   private onDeath() {
     if (this.mode === 'dead') return;
@@ -963,41 +1213,73 @@ export class Game {
     this.rig.addTrauma(0.8);
     this.v3.set(this.player.pos.x, this.player.pos.y, 0);
     this.particles.explosion(this.v3, 0xff9a5a, 1.6);
-    this.particles.bubbles(this.v3, 60, 12, 3);
   }
 
   private updateDead(dt: number) {
     this.updateWorld(dt, BASE_SPEED * 0.2);
     this.player.update(dt, this.input, this.bounds, 0, -999);
     this.updateCombat(dt);
-    if (Math.random() < dt * 20) this.particles.bubbles(this.v3.set(this.player.pos.x, this.player.pos.y, 0), 2, 6, 2);
     if (this.modeTime > 1.1 && this.ui.current !== 'death') {
       this.loop.timeScale = 1;
       this.ui.setHudVisible(false);
       this.save.data.stats.deaths++;
       if (this.run.daily) this.unlock('daily');
-      this.ui.showDeath(this.commitRun(false, false));
+      const summary = this.commitRun(false);
+      this.ui.showDeath(summary);
     }
   }
 
-  /** Bank pearls and stats, record the run. Returns the summary for the result screen. */
-  private commitRun(victory: boolean, abandoned: boolean): RunSummary {
+  /** Move run earnings into the save (once). */
+  private bank() {
     const run = this.run;
     const s = this.save.data;
-    s.pearls += run.pearls;
-    s.stats.pearlsTotal += run.pearls;
-    s.stats.plankton += run.plankton;
-    s.stats.dashKills += run.dashKills;
-    s.stats.reveals += run.reveals;
+    s.shards += run.shards;
+    s.stats.shardsTotal += run.shards;
+    s.stats.sparks += run.sparks;
     s.stats.seconds += run.time;
-    if (s.stats.pearlsTotal >= 25) this.unlock('pearls');
-    if (s.stats.dashKills >= 25) this.unlock('dasher');
+    if (s.stats.shardsTotal >= 25) this.unlock('pearls');
     if (s.stats.reveals >= 60) this.unlock('echo');
-    if (run.depth <= 2000) this.unlock('deep_breath');
-    const prevBest = s.best.score;
-    const depth = Math.max(0, Math.round(run.depth));
+    run.shards = 0;
+    run.sparks = 0;
+    run.time = 0;
+    this.save.write();
+  }
+
+  private summary(cause: boolean): RunSummary {
+    const run = this.run;
+    return {
+      cause: cause ? this.player.deathCause : undefined,
+      level: run.level,
+      distance: run.distance,
+      score: run.score,
+      kills: run.kills,
+      sparks: run.sparks,
+      shards: this.lastBankedShards,
+      time: this.lastTime,
+      world: this.theme.name,
+      worlds: run.worlds.size,
+      newBest: run.score > this.prevBest && run.score > 0,
+      daily: run.daily,
+    };
+  }
+
+  private lastBankedShards = 0;
+  private lastTime = 0;
+  private prevBest = 0;
+
+  private commitRun(abandoned: boolean): RunSummary {
+    const run = this.run;
+    const s = this.save.data;
+    this.lastBankedShards = run.shards;
+    this.lastTime = run.time;
+    this.prevBest = s.best.score;
+    if (run.tutorial >= 0) {
+      run.tutorial = -1;
+      this.ui.coach(null);
+    }
+    this.bank();
     if (!abandoned) {
-      this.save.recordRun({ score: run.score, depth, zone: run.zone, daily: run.daily, date: new Date().toISOString().slice(0, 10), victory });
+      this.save.recordRun({ score: run.score, level: run.level, daily: run.daily, date: new Date().toISOString().slice(0, 10), worlds: run.worlds.size });
       if (run.daily) {
         const today = String(dailySeed());
         if (s.daily.date !== today) s.daily = { date: today, best: 0 };
@@ -1005,35 +1287,21 @@ export class Game {
       }
     }
     this.save.write();
-    // Pearls are banked once; zero them so a later commit can't double count.
-    const pearls = run.pearls;
-    run.pearls = 0;
-    return {
-      cause: this.player.deathCause,
-      depth,
-      score: run.score,
-      kills: run.kills,
-      plankton: run.plankton,
-      pearls,
-      time: run.time,
-      zone: this.zone.name,
-      newBest: !abandoned && run.score > prevBest && run.score > 0,
-      daily: run.daily,
-    };
+    return this.summary(true);
   }
 
   private pushHud() {
     const p = this.player;
     const run = this.run;
     this.ui.updateHud({
-      depth: run.depth,
-      zoneName: this.zone.name,
-      zoneIndex: Math.min(run.zone, 4),
-      zoneProgress: this.mode === 'boss' ? 1 : clamp(run.zoneTime / this.zone.duration, 0, 1),
+      distance: run.distance,
+      level: Math.max(1, run.level),
+      world: run.tutorial >= 0 ? 'Practice page' : this.theme.name,
+      progress: this.mode === 'boss' ? 1 : clamp(run.levelTime / run.def.duration, 0, 1),
       hull: p.hull,
       maxHull: p.stats.maxHull,
-      oxygen: p.oxygen,
-      maxOxygen: p.stats.maxOxygen,
+      light: p.oxygen,
+      maxLight: p.stats.maxOxygen,
       ammo: p.ammo,
       score: run.score,
       combo: run.combo,
@@ -1048,17 +1316,19 @@ export class Game {
     });
   }
 
-  // ------------------------------------------------------------------ debug
+  // ------------------------------------------------------------------ dev helpers
 
-  /** Dev-only helpers used by automated screenshots and manual testing. */
-  debugJump(zone: number, boss: boolean) {
+  /** Jump to the end of a given level (dev + automated screenshots). */
+  debugLevel(n: number, toBoss = true) {
     if (this.mode !== 'play') return;
-    this.run.zone = zone;
-    this.run.zoneTime = boss ? this.zone.duration : 0;
-    const z = this.zone;
-    this.atmo.setZone(z, true);
-    this.seabed.setZone(z);
-    this.fauna.setZone(z);
-    audio.setMood(z.mood);
+    this.run.level = n;
+    this.run.def = levelDef(n);
+    this.run.levelTime = toBoss ? this.run.def.duration : 0;
+  }
+
+  debugTheme(id: ThemeId) {
+    this.applyTheme(THEMES[id], true);
+    this.noteWorld(id);
+    if (this.mode === 'menu') this.ui.show('title');
   }
 }

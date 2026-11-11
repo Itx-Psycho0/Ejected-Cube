@@ -1,116 +1,111 @@
 <div align="center">
 
-# Ejected Cube: Abyssal Ascent
+# Ejected Cube
 
-**A 3D underwater escape shooter for the browser, built with Three.js and TypeScript.**
+**A 3D flying shooter where every level is a different world, made with Three.js and TypeScript.**
 
-Hadal Station Kestrel is collapsing six kilometres below the surface. Its last escape capsule, EC-07, fires you out into the trench. Climb through five depth zones, past five bosses, and break the surface before your oxygen runs out.
+The Atlas is a book where every page is a whole world. A drop of ink, the Blot, is eating its pages. The Atlas Engine fired its last cube of light out into the scattered pages, and you fly it home, one world at a time.
 
-[Play the game live](https://itx-psycho0.github.io/Ejected-Cube/)
-
-![Title screen](docs/screenshots/01-title.jpg)
+![Story intro](docs/screenshots/01-story.jpg)
 
 </div>
 
-## Screenshots
+## Ten worlds, picked at random
+
+Every run starts on a random world, and every new level turns the page to another one. The whole game re-skins each time: landscape, props, wildlife, particles, lighting, materials, post-processing, music and the interface itself.
+
+| World | Look |
+|---|---|
+| **Abyssal Trench** | Deep sea: realistic lighting, kelp, vents, whale silhouette. The dark hides creatures |
+| **Paper Sky** | Folded paper hills, cut-out clouds, windmills, paper grain and ink outlines |
+| **Clean Room** | A white laboratory: tiled floor, pylons with signal-orange strips, lab drones |
+| **Sketchbook** | Pencil line art: cross-hatching drawn by a screen-space shader |
+| **Summer Sky** | Cel-shaded summer day: tall cumulus, power lines, saturated colour |
+| **Brick Town** | Glossy plastic toy bricks with studs, including the ground |
+| **Clay Valley** | Matte clay mushrooms and blob trees in pastel light |
+| **Ink Mountains** | Sumi-e ink wash on rice paper; only vermilion keeps its colour |
+| **Red Mesa** | Sunset desert, saguaro cacti, blowing sand |
+| **Glacier Light** | Polar night with an animated aurora, ice crystals, snowfall |
 
 | | |
 |---|---|
-| ![Ejection from the station](docs/screenshots/02-ejection.jpg) | ![Hadal Trench](docs/screenshots/03-hadal.jpg) |
-| ![The Chain, Midnight Zone](docs/screenshots/04-midnight-chain.jpg) | ![Kraken, Twilight Zone](docs/screenshots/05-twilight-kraken.jpg) |
-| ![Twilight Zone jellyfish](docs/screenshots/08-twilight.jpg) | ![Leviathan, Sunlit Shelf](docs/screenshots/06-sunlit-leviathan.jpg) |
+| ![Paper Sky home](docs/screenshots/02-home-paper.jpg) | ![Glacier Light home](docs/screenshots/03-home-glacier.jpg) |
+| ![Sketchbook](docs/screenshots/04-sketchbook.jpg) | ![Summer Sky](docs/screenshots/05-summer-sky.jpg) |
+| ![Ink Mountains](docs/screenshots/06-ink-mountains.jpg) | ![Abyssal Trench](docs/screenshots/07-abyssal-trench.jpg) |
+| ![Red Mesa](docs/screenshots/08-red-mesa.jpg) | ![Brick Town](docs/screenshots/09-brick-town.jpg) |
+| ![The Lantern in the Sketchbook](docs/screenshots/10-boss-lantern-sketch.jpg) | ![Hangar](docs/screenshots/11-hangar.jpg) |
 
-## Features
+In Settings → Worlds you can choose which worlds are in the rotation, lock the game to one favourite, or keep the interface on one look.
 
-### The ascent
-- **Five depth zones** that change the whole world as you rise: Hadal Trench (6,000 m), Abyssal Plain, Midnight Zone, Twilight Zone and Sunlit Shelf. Each has its own fog, light, seabed palette, set dressing, ocean current, enemy mix and generative soundtrack.
-- **Distance is depth.** The counter runs from 6,000 m down to 0, and reaching the surface is the ending.
-- **Endless +1:** after you surface, dive again at a higher difficulty.
-- **Daily dive:** a date-seeded run, identical for everyone each day.
+## The journey
 
-### Survival
-- **Oxygen drains all the time.** Collect glowing plankton to refill it. Chained pickups build a combo.
-- **Hull** is your health. Repair crates restore it.
-- **Sonar ammo** regenerates slowly, so you are never fully disarmed.
-- **Darkness:** in the deep zones creatures are almost invisible outside your floodlight. A **sonar ping** reveals and stuns them, and uncovers hidden **pearls**.
+- **Story:** an animated paper cut-out storybook plays on the first visit and can be replayed from the home screen. It ends by tearing in half to reveal the game.
+- **Levels:** numbered levels with a boss every third level. Difficulty rises in a sawtooth curve: each level gets busier toward its gate, and the level after a boss starts a little easier. Enemy health, damage, bullet speed, scroll speed, currents and new creature types all ramp up.
+- **Checkpoints:** after each boss you can start later runs from that level (Journey map).
+- **Ending:** beating the fifth boss at level 15 plays the story's ending. Then the pages beyond fifteen continue with stronger bosses.
+- **Difficulty:** Relaxed, Normal and Hard presets.
+- **Daily run:** a date-seeded run, identical for everyone each day.
+
+## Playing
+
+- **Light** fades all the time; collect glowing sparks to keep it up. Chained sparks build a combo.
+- **Hull** is your health; repair kits restore it.
+- **Pulse** reveals hidden creatures and **shards** (the currency), and stuns some creatures.
 - **Dash** gives brief invulnerability and rams through small creatures.
-- **Bioflare:** fill the lumen meter with combos, then clear the whole screen.
-- **Power-ups:** shield bubble, plankton magnet, triple sonar and homing torpedoes.
-
-### Creatures
-| Species | Behaviour |
-|---|---|
-| Sea urchin | Drifting spike ball, sheds spines when destroyed |
-| Jellyfish | Pulse-glide swimming, shader-animated tentacles |
-| Naval mine | Chained to the seabed, arms when you approach; shoot it for chain reactions |
-| Lanternfish | Schools that home in on the pod |
-| Pufferfish | Inflates near you, then bursts into spikes |
-| Station debris | Wreckage falling from the collapsing station |
-
-### Bosses
-Every big attack is announced by a pulsing red danger lane. Each boss has a second phase below 50% HP.
-
-| Zone | Boss | Signature attacks |
-|---|---|---|
-| Hadal | **Thermal Warden**, a magma-veined vent crab | Lava lobs, claw shockwave, eruption |
-| Abyssal | **The Lantern**, a giant anglerfish | Blinding lure that summons lanternfish, full-screen lunge, tooth volleys |
-| Midnight | **The Chain**, a siphonophore colony | Sequential volleys, whip dive, radial blooms |
-| Twilight | **Kraken**, with ten animated arms | Tentacle slams, ink clouds, clubbed grabs |
-| Sunlit | **Leviathan**, an armoured serpent | Screen-crossing charge, walls of orbs with one gap, summons |
-
-### Progression
-- **Upgrade bay:** spend pearls on seven upgrade tracks (hull, oxygen, damage, fire rate, dash, passive magnet, flare charge).
-- **Logbook:** 15 achievements, a top-10 run history and lifetime stats.
-- Progress saves to the browser automatically.
-
-### Every screen
-Loading, home, how to play, settings, upgrade bay, logbook, pause, death (a different message for each cause), victory and exit.
-
-## Controls
+- **Bioflare:** fill the flare ring with combos, then clear the screen.
+- **Power-ups:** shield, spark magnet, triple bolt and seekers.
+- **Six creature types** and **five bosses** with telegraphed attacks and second phases.
 
 | Action | Keyboard / mouse | Touch |
 |---|---|---|
-| Steer | Mouse, or WASD / arrow keys | Drag anywhere |
-| Fire | Hold left click, or Space | Auto-fire (toggle with FIRE) |
-| Sonar ping | Right click, or E | PING |
+| Steer | Mouse, or WASD / arrows | Drag anywhere |
+| Fire | Hold left click or Space | Automatic |
+| Pulse | Right click or E | PULSE |
 | Dash | Shift | DASH |
 | Bioflare | Q | FLARE |
-| Pause | Esc / P | II |
+| Pause | Esc / P | Pause button |
+
+The first run starts with a five-step **interactive tutorial** (fly, fire, dash, pulse, flare). On the first visit, a short **guided tour** points out the home screen. Both can be replayed.
+
+## Make it yours
+
+The **Hangar** has a live 3D preview:
+- 12 hull colours, 6 accents and 7 patterns (hazard band, stripe, checker, panels, splotch, polka)
+- A call sign painted on the hull
+- Three hull shapes, floodlight colours, five engine trails and an optional roll cage
+- Seven upgrade tracks (hull, light reserve, damage, fire rate, dash, magnet, flare charge)
+
+Shards come from hidden pickups, bosses and **missions**. There are always three active, they carry over between runs, and they get harder each time you complete one.
+
+The **Logbook** has 17 achievements, the worlds you've visited, your top-10 runs and lifetime stats.
 
 ## Tech stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| Language | **TypeScript** (strict) | Catches whole classes of bugs before they ship |
-| Build | **Vite** | Instant dev server, hashed and tree-shaken production builds |
-| Rendering | **Three.js** r187 | Mature WebGL 2 engine with PBR materials |
-| Post-processing | **pmndrs/postprocessing** | Bloom, chromatic aberration, vignette, grain and ACES tone mapping merged into one pass |
-| Audio | **WebAudio**, fully procedural | The soundtrack and every sound effect are synthesized at runtime. No audio files |
-| Art | **Procedural** | Every model, texture and terrain is generated in code. No image or model downloads |
-| Fonts | **Fontsource** (self-hosted) | No third-party requests, works offline |
-| Hosting | GitHub Pages / Vercel / Netlify | Static site; configs for all three are included |
-| Offline | Service worker + web manifest | Installable, and plays offline after the first visit |
+| Layer | Choice |
+|---|---|
+| Language | TypeScript (strict) |
+| Build | Vite |
+| Rendering | Three.js r187 (WebGL 2), PBR materials restyled per world |
+| Post-processing | pmndrs/postprocessing plus a custom stylize effect (Sobel ink outlines, hatching, ink wash, paper grain) |
+| Audio | WebAudio, fully procedural: no audio files |
+| Art | Procedural: every model, texture, terrain and the storybook are generated in code |
+| Fonts | Self-hosted with Fontsource, one display face per world |
+| Offline | Service worker and installable web app manifest |
 
-There are only two runtime dependencies: `three` and `postprocessing`.
+Runtime dependencies: `three` and `postprocessing` (plus font files).
 
 ## Performance
 
-The game is built to stay at 60 FPS on mid-range laptops and phones:
-
-- **Delta-time simulation:** the game runs at the same speed at 30, 60 or 144 Hz.
-- **No allocations during play:** enemies, pickups, projectiles and bosses come from preallocated pools.
-- **Instancing everywhere:** rocks, kelp, coral, plankton, fish, projectiles, boss arms and body segments are drawn as `InstancedMesh`. A typical frame is 70–120 draw calls.
-- **GPU particles:** bubbles, sparks and smoke are written once into a ring buffer and animated entirely in the vertex shader. Only new particles are uploaded.
-- **Constant light count:** effects reuse one pooled flash light, so shaders never recompile mid-game. Boss materials are compiled on arrival, and all others during loading.
-- **One post-processing pass** for every screen effect, with bloom at reduced resolution.
-- **Quality presets plus an automatic governor** that steps quality down if the frame rate drops.
-- **Swept collisions:** fast shots can't tunnel through small targets at low frame rates.
-- **DOM HUD with change detection:** the HUD writes to the page only when a value actually changes.
-- **Recycled terrain:** three seabed tiles regenerate ahead of the camera.
+- Delta-time simulation: the same speed at any refresh rate
+- Object pools for every enemy, pickup and projectile: no allocations during play
+- Instanced rendering for props, wildlife, clouds, sparks, bullets and boss limbs
+- GPU particles animated entirely in the vertex shader
+- World swaps happen behind the page-turn transition, with shaders compiled while the screen is covered
+- Constant light count, so shaders never recompile mid-fight
+- Quality presets, plus an automatic governor that steps quality down when the frame rate drops
+- HUD that only touches the DOM when a value changes
 
 ## Getting started
-
-Requires Node 20 or later (22 recommended).
 
 ```bash
 npm install
@@ -118,37 +113,34 @@ npm run dev        # http://localhost:5173
 ```
 
 ```bash
-npm run build      # type-check, then production build into dist/
-npm run preview    # serve the production build locally
+npm run build      # type-check + production build into dist/
+npm run preview
 ```
+
+Add `?debug` to the URL of a production build to expose `window.game` (for example, `game.debugTheme('ink')`).
 
 ## Deploying
 
-The build output in `dist/` is a static site that works on any host, at the domain root or in a sub-folder.
+`dist/` is a static site that works at a domain root or in a sub-folder.
 
-**GitHub Pages (included workflow):** push to `main`. Then, once, open repo **Settings → Pages → Source** and choose **GitHub Actions**. Every later push to `main` redeploys automatically.
-
-**Vercel:** import the repository at vercel.com/new. `vercel.json` already sets the build command, output folder and cache headers.
-
-**Netlify:** import the repository. `netlify.toml` already holds the settings.
-
-**itch.io:** run `npm run build`, zip the contents of `dist/`, upload the zip as an HTML5 game and tick "This file will be played in the browser".
+- **GitHub Pages:** push to `main`, then once set **Settings → Pages → Source → GitHub Actions**. The included workflow builds and deploys on every push.
+- **Vercel:** import the repo; `vercel.json` has the settings.
+- **Netlify:** import the repo; `netlify.toml` has the settings.
+- **itch.io:** zip the contents of `dist/` and upload it as an HTML5 game.
 
 ## Project structure
 
 ```
 src/
-  main.ts            entry: WebGL check, boot, service worker
-  core/              renderer + post FX, loop, input, quality, pools, noise, RNG
-  audio/             procedural music and sound effects
-  world/             atmosphere, seabed, fauna, station, procedural textures and shader patches
-  entities/          player pod, enemies, pickups
-    bosses/          five bosses on a generator-scripted base class
-  combat/            projectile pools
-  fx/                particles, sonar ping, camera rig, flashes, danger telegraphs
-  game/              Game state machine, zones, save data, upgrades and achievements
-  ui/                HUD and every menu screen
-  styles/            CSS
+  core/       renderer + post FX, loop, input, quality, pools, noise, RNG
+  themes/     the ten world definitions and the material styler
+  world/      atmosphere, ground + props, clouds, wildlife, textures, shader patches
+  entities/   the cube (model, hull painter, flight), enemies, pickups, bosses
+  combat/     projectile pools
+  fx/         particles, stylize effect, pulse ring, camera rig, flashes, telegraphs
+  game/       Game state machine, levels, missions, cosmetics, save data, upgrades
+  ui/         HUD, every screen, storybook, page turns, icons, theme tokens
+  styles/     CSS
 ```
 
 There is a deeper tour in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

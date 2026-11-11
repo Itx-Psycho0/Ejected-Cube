@@ -1,17 +1,28 @@
 :root {
-  --abyss: #030914;
-  --deep: #0b1d33;
-  --panel: rgba(8, 22, 40, 0.78);
-  --line: rgba(120, 190, 230, 0.22);
-  --fg: #e3eef8;
-  --muted: #8ea6bd;
-  --teal: #2ef2c8;
-  --violet: #b48cff;
-  --coral: #ff6b6b;
-  --amber: #ffc35a;
-  --display: 'Bricolage Grotesque Variable', 'Segoe UI', system-ui, sans-serif;
-  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
-  color-scheme: dark;
+  --bg: #06121f;
+  --panel: rgba(10, 30, 44, 0.72);
+  --panel-solid: #0c2232;
+  --ink: #dfeae6;
+  --muted: #8fa8a4;
+  --accent: #7fd1b9;
+  --accent-ink: #06121f;
+  --accent2: #e8b06a;
+  --line: rgba(143, 200, 190, 0.22);
+  --danger: #ef8a7a;
+  --good: #7fd1b9;
+  --radius: 10px;
+  --border: 1px;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  --display: 'Bricolage Grotesque Variable', 'Segoe UI', sans-serif;
+  --body: 'Nunito Sans Variable', 'Segoe UI', system-ui, sans-serif;
+  --numeric: 'IBM Plex Mono', ui-monospace, monospace;
+  --label-case: uppercase;
+  --label-track: 0.16em;
+  --title-weight: 800;
+  --hud-ink: #eef6f3;
+  --hud-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  --hud-scale: 1;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 *,
 *::before,
@@ -23,12 +34,15 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--abyss);
-  color: var(--fg);
-  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   touch-action: none;
+  transition:
+    background-color 0.6s,
+    color 0.6s;
 }
 #scene {
   position: fixed;

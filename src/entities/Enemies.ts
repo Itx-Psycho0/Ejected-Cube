@@ -1,5 +1,7 @@
 import { Color, Scene, Vector2, Vector3 } from 'three';
-import type { EnemyKind, ZoneDef } from '../game/zones';
+import type { LevelDef } from '../game/levels';
+
+export type EnemyKind = 'urchin' | 'jelly' | 'mine' | 'lanternfish' | 'puffer' | 'debris';
 import type { Particles } from '../fx/Particles';
 import type { Projectiles } from '../combat/Projectiles';
 import type { Player } from './Player';
@@ -124,16 +126,16 @@ export class Enemies {
     this.rnd.reseed(seed);
   }
 
-  spawn(kind: EnemyKind, x: number, y: number, difficulty = 1): Enemy | null {
+  spawn(kind: EnemyKind, x: number, y: number, hpMult = 1): Enemy | null {
     const e = this.list.find((en) => !en.active && en.kind === kind);
     if (!e) return null;
     const spec = ENEMY_SPECS[kind];
     e.active = true;
     e.pos.set(x, y);
     e.vel.set(0, 0);
-    e.maxHp = e.hp = Math.ceil(spec.hp * (1 + (difficulty - 1) * 0.5));
+    e.maxHp = e.hp = Math.ceil(spec.hp * hpMult);
     e.radius = spec.radius;
-    e.contactDamage = Math.round(spec.contact * (1 + (difficulty - 1) * 0.25));
+    e.contactDamage = spec.contact;
     e.score = spec.score;
     e.age = 0;
     e.phase = this.rnd.next() * 10;
@@ -152,33 +154,35 @@ export class Enemies {
   }
 
   /** Spawn director: decides what appears and when. */
-  direct(dt: number, zone: ZoneDef, progress: number, ctx: EnemyContext, allowed: boolean) {
+  direct(dt: number, level: LevelDef, progress: number, ctx: EnemyContext, allowed: boolean, spawnMult: number) {
     if (!allowed) return;
-    const rate = zone.spawnRate * (1 + progress * 0.6) * (0.85 + ctx.difficulty * 0.15);
+    // Sawtooth within a level: calm start, busier toward the gate.
+    const rate = level.spawnRate * (0.75 + progress * 0.6) * spawnMult;
     this.spawnAcc += dt * rate;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1 + this.rnd.range(-0.25, 0.25);
-      const kind = this.rnd.weighted(zone.enemies);
+      const kind = this.rnd.weighted(level.enemies);
+      const hp = level.enemyHp;
       const b = ctx.bounds;
       const x = b.x + 40;
       switch (kind) {
         case 'lanternfish': {
           const n = this.rnd.int(3, 5);
           const y = this.rnd.range(-b.y * 0.6, b.y * 0.7);
-          for (let i = 0; i < n; i++) this.spawn('lanternfish', x + i * 18, y + this.rnd.range(-20, 20), ctx.difficulty);
+          for (let i = 0; i < n; i++) this.spawn('lanternfish', x + i * 18, y + this.rnd.range(-20, 20), hp);
           break;
         }
         case 'mine': {
           const floor = ctx.floorAt(x);
           const y = clamp(this.rnd.range(floor + 50, b.y * 0.55), floor + 40, b.y * 0.6);
-          this.spawn('mine', x, y, ctx.difficulty);
+          this.spawn('mine', x, y, hp);
           break;
         }
         case 'debris':
-          this.spawn('debris', this.rnd.range(0, b.x + 60), b.y + 40, ctx.difficulty);
+          this.spawn('debris', this.rnd.range(0, b.x + 60), b.y + 40, hp);
           break;
         default:
-          this.spawn(kind, x, this.rnd.range(-b.y * 0.7, b.y * 0.75), ctx.difficulty);
+          this.spawn(kind, x, this.rnd.range(-b.y * 0.7, b.y * 0.75), hp);
       }
     }
   }

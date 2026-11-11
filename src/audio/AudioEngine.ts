@@ -382,6 +382,23 @@ export class AudioEngine {
     this.noise(1.4, 0.55, 300, 4000, 1.5, 'bandpass', 0.4);
     this.tone('sine', 60, 30, 1.2, 0.5);
   }
+  pageFlip() {
+    if (!this.ctx) return;
+    this.noise(0.35, 0.25, 4000, 900, 0.7, 'bandpass', 0.2);
+  }
+  tear() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 6; i++) setTimeout(() => this.noise(0.12, 0.2, 2600, 1200, 1.4, 'bandpass'), i * 45);
+  }
+  chime() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [0, 4, 7].forEach((n, i) => this.tone('sine', semis(660, n), semis(660, n), 0.9, 0.06, { when: t + i * 0.09, reverb: 0.6 }));
+  }
+  setAmbience(cutoff: number) {
+    if (!this.ctx) return;
+    this.ambFilter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 1.2);
+  }
   uiHover() {
     if (!this.canPlay('uih', 0.04)) return;
     this.tone('sine', 1800, 1800, 0.04, 0.025);

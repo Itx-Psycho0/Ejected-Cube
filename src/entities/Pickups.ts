@@ -40,10 +40,10 @@ export interface Pickup {
 const PLANKTON_MAX = 160;
 const POWERUPS: PowerUp[] = ['shield', 'magnet', 'spread', 'torpedo'];
 export const POWERUP_INFO: Record<PowerUp, { label: string; color: number }> = {
-  shield: { label: 'Shield bubble', color: 0x2ef2c8 },
-  magnet: { label: 'Plankton magnet', color: 0x6fd2ff },
-  spread: { label: 'Triple sonar', color: 0xb48cff },
-  torpedo: { label: 'Homing torpedoes', color: 0xffb347 },
+  shield: { label: 'Shield', color: 0x2ef2c8 },
+  magnet: { label: 'Spark magnet', color: 0x6fd2ff },
+  spread: { label: 'Triple bolt', color: 0xb48cff },
+  torpedo: { label: 'Seekers', color: 0xffb347 },
 };
 
 /**
@@ -319,7 +319,7 @@ export class Pickups {
         d.scale.setScalar(2 + Math.sin(time * 5 + p.phase) * 0.45);
         d.updateMatrix();
         this.plankton.setMatrixAt(n, d.matrix);
-        this.plankton.setColorAt(n, this.color.setRGB(0.25, 1.9, 1.55));
+        this.plankton.setColorAt(n, this.color.setRGB(2.1, 1.6, 0.55));
         n++;
       } else if (p.root) {
         const r = p.root;

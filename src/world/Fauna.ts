@@ -1,51 +1,104 @@
-import { Color, DynamicDrawUsage, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, Scene, InstancedBufferAttribute } from 'three';
-import { fishGeometry } from './geometry';
+import {
+  BoxGeometry,
+  BufferGeometry,
+  Color,
+  ConeGeometry,
+  CylinderGeometry,
+  DynamicDrawUsage,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Scene,
+} from 'three';
+import { fishGeometry, merge } from './geometry';
 import { patchSwim } from './shaderPatches';
 import { Random } from '../core/Random';
-import type { ZoneDef } from '../game/zones';
+import type { ThemeDef } from '../themes/themes';
 import type { Atmosphere } from './Atmosphere';
 import type { QualityPreset } from '../core/Quality';
-import { damp } from '../core/math';
 
-interface School {
+interface Flock {
   x: number;
   y: number;
   z: number;
   vx: number;
-  phase: number;
   size: number;
   color: Color;
   offsets: Float32Array;
 }
 
-const SCHOOL_COLORS = [0xc8d6e5, 0xffd166, 0x9ad1ff, 0xf6a6b2, 0xa8e6cf];
-const PER_SCHOOL = 14;
+const PER = 12;
 
-/**
- * Ambient life that sells the setting but never touches gameplay:
- * fish schools in the upper zones and a whale-sized silhouette
- * cruising far in the background.
- */
+function birdGeometry(): BufferGeometry {
+  const body = new ConeGeometry(0.8, 5, 5);
+  body.rotateZ(-Math.PI / 2);
+  const wingL = new BoxGeometry(2.4, 0.15, 6);
+  wingL.translate(0, 0, 3);
+  const wingR = new BoxGeometry(2.4, 0.15, 6);
+  wingR.translate(0, 0, -3);
+  return merge([body, wingL, wingR]);
+}
+
+function droneGeometry(): BufferGeometry {
+  const parts: BufferGeometry[] = [new BoxGeometry(4, 1.4, 4)];
+  for (const [x, z] of [
+    [2.6, 2.6],
+    [-2.6, 2.6],
+    [2.6, -2.6],
+    [-2.6, -2.6],
+  ]) {
+    const r = new CylinderGeometry(1.6, 1.6, 0.2, 12);
+    r.translate(x, 0.8, z);
+    parts.push(r);
+  }
+  return merge(parts);
+}
+
+/** Ambient life per world: fish, birds or drones, plus the abyss whale. */
 export class Fauna {
-  private fish: InstancedMesh;
-  private schools: School[] = [];
+  private meshes: Record<'fish' | 'birds' | 'drones', InstancedMesh>;
+  private active: InstancedMesh | null = null;
+  private flocks: Flock[] = [];
   private giant: Mesh;
   private giantX = 900;
   private rnd = new Random(31337);
   private dummy = new Object3D();
-  private amount = 0;
-  private targetAmount = 0;
+  private colors: number[] = [0xffffff];
+  private flockKind: ThemeDef['props']['flock'] = 'none';
+  private showGiant = false;
 
   constructor(scene: Scene, atmo: Atmosphere, quality: QualityPreset) {
-    const mat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.6 });
-    patchSwim(mat, atmo.shared.uTime, 9, 0.02, 'fish');
-    const nSchools = Math.max(2, Math.round(9 * quality.density));
-    this.fish = new InstancedMesh(fishGeometry(6, 1.3), mat, nSchools * PER_SCHOOL);
-    this.fish.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.fish.instanceColor = new InstancedBufferAttribute(new Float32Array(nSchools * PER_SCHOOL * 3), 3);
-    this.fish.frustumCulled = false;
-    scene.add(this.fish);
-    for (let i = 0; i < nSchools; i++) this.schools.push(this.makeSchool(true));
+    const n = Math.max(2, Math.round(8 * quality.density));
+    const fishMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.6 });
+    patchSwim(fishMat, atmo.shared.uTime, 9, 0.02, 'fish');
+    const birdMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+    birdMat.onBeforeCompile = (s) => {
+      s.uniforms.uTime = atmo.shared.uTime;
+      s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;').replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float ph = 0.0;
+        #ifdef USE_INSTANCING
+          ph = instanceMatrix[3].x * 0.2 + instanceMatrix[3].y * 0.3;
+        #endif
+        transformed.y += sin(uTime * 9.0 + ph) * abs(position.z) * 0.45;`,
+      );
+    };
+    birdMat.customProgramCacheKey = () => 'bird';
+    const droneMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.5 });
+    const mk = (g: BufferGeometry, m: MeshStandardMaterial) => {
+      const im = new InstancedMesh(g, m, n * PER);
+      im.instanceMatrix.setUsage(DynamicDrawUsage);
+      im.instanceColor = new InstancedBufferAttribute(new Float32Array(n * PER * 3), 3);
+      im.frustumCulled = false;
+      im.count = 0;
+      scene.add(im);
+      return im;
+    };
+    this.meshes = { fish: mk(fishGeometry(6, 1.3), fishMat), birds: mk(birdGeometry(), birdMat), drones: mk(droneGeometry(), droneMat) };
+    for (let i = 0; i < n; i++) this.flocks.push(this.makeFlock(true));
 
     const gMat = new MeshStandardMaterial({ color: 0x0a1a24, roughness: 0.9 });
     patchSwim(gMat, atmo.shared.uTime, 0.9, 0.0016, 'giant');
@@ -55,64 +108,64 @@ export class Fauna {
     scene.add(this.giant);
   }
 
-  private makeSchool(initial: boolean): School {
+  private makeFlock(initial: boolean): Flock {
     const r = this.rnd;
-    const offsets = new Float32Array(PER_SCHOOL * 4);
-    for (let i = 0; i < PER_SCHOOL; i++) {
+    const offsets = new Float32Array(PER * 4);
+    for (let i = 0; i < PER; i++) {
       offsets[i * 4] = r.range(-22, 22);
       offsets[i * 4 + 1] = r.range(-10, 10);
       offsets[i * 4 + 2] = r.range(-14, 14);
       offsets[i * 4 + 3] = r.next() * 10;
     }
-    const goingLeft = r.chance(0.7);
+    const left = r.chance(0.7);
+    const sky = this.flockKind !== 'fish';
     return {
-      x: initial ? r.range(-600, 600) : goingLeft ? r.range(500, 900) : r.range(-900, -500),
-      y: r.range(-85, 70),
-      z: r.range(-320, -70),
-      vx: goingLeft ? -r.range(25, 60) : r.range(15, 35),
-      phase: r.next() * 10,
+      x: initial ? r.range(-600, 600) : left ? r.range(500, 900) : r.range(-900, -500),
+      y: sky ? r.range(30, 120) : r.range(-85, 70),
+      z: r.range(-320, -90),
+      vx: left ? -r.range(25, 60) : r.range(15, 35),
       size: r.range(0.7, 1.4),
-      color: new Color(r.pick(SCHOOL_COLORS)),
+      color: new Color(r.pick(this.colors)),
       offsets,
     };
   }
 
-  setZone(z: ZoneDef) {
-    this.targetAmount = z.fish;
+  setTheme(t: ThemeDef) {
+    this.flockKind = t.props.flock;
+    this.colors = t.props.flockColors;
+    this.showGiant = t.props.giant;
+    for (const m of Object.values(this.meshes)) m.count = 0;
+    this.active = t.props.flock === 'none' ? null : this.meshes[t.props.flock];
+    for (let i = 0; i < this.flocks.length; i++) this.flocks[i] = this.makeFlock(true);
   }
 
   update(dt: number, time: number, scrollSpeed: number) {
-    this.amount = damp(this.amount, this.targetAmount, 0.5, dt);
-    const visibleSchools = Math.round(this.schools.length * this.amount);
-    const d = this.dummy;
-    let idx = 0;
-    for (let s = 0; s < this.schools.length; s++) {
-      let sc = this.schools[s];
-      sc.x += (sc.vx - scrollSpeed * 0.6) * dt;
-      if (sc.x < -1000 || sc.x > 1000) sc = this.schools[s] = this.makeSchool(false);
-      if (s >= visibleSchools) continue;
-      const dir = sc.vx < 0 ? Math.PI : 0;
-      for (let i = 0; i < PER_SCHOOL; i++) {
-        const o = sc.offsets;
-        const ph = o[i * 4 + 3];
-        d.position.set(
-          sc.x + o[i * 4] + Math.sin(time * 0.7 + ph) * 3,
-          sc.y + o[i * 4 + 1] + Math.sin(time * 1.3 + ph) * 2,
-          sc.z + o[i * 4 + 2],
-        );
-        d.rotation.set(0, dir + Math.sin(time + ph) * 0.15, Math.sin(time * 1.3 + ph) * 0.1);
-        d.scale.setScalar(sc.size);
-        d.updateMatrix();
-        this.fish.setMatrixAt(idx, d.matrix);
-        this.fish.setColorAt(idx, sc.color);
-        idx++;
+    const m = this.active;
+    if (m) {
+      const d = this.dummy;
+      let idx = 0;
+      for (let s = 0; s < this.flocks.length; s++) {
+        let f = this.flocks[s];
+        f.x += (f.vx - scrollSpeed * 0.6) * dt;
+        if (f.x < -1000 || f.x > 1000) f = this.flocks[s] = this.makeFlock(false);
+        const dir = f.vx < 0 ? Math.PI : 0;
+        for (let i = 0; i < PER; i++) {
+          const o = f.offsets;
+          const ph = o[i * 4 + 3];
+          d.position.set(f.x + o[i * 4] + Math.sin(time * 0.7 + ph) * 3, f.y + o[i * 4 + 1] + Math.sin(time * 1.3 + ph) * 2, f.z + o[i * 4 + 2]);
+          d.rotation.set(0, dir + Math.sin(time + ph) * 0.15, Math.sin(time * 1.3 + ph) * 0.1);
+          d.scale.setScalar(f.size);
+          d.updateMatrix();
+          m.setMatrixAt(idx, d.matrix);
+          m.setColorAt(idx, f.color);
+          idx++;
+        }
       }
+      m.count = idx;
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
-    this.fish.count = idx;
-    this.fish.instanceMatrix.needsUpdate = true;
-    if (this.fish.instanceColor) this.fish.instanceColor.needsUpdate = true;
-
-    this.giant.visible = this.amount > 0.3;
+    this.giant.visible = this.showGiant;
     this.giantX -= (18 + scrollSpeed * 0.15) * dt;
     if (this.giantX < -1100) this.giantX = 1300;
     this.giant.position.x = this.giantX;

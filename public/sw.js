@@ -1,7 +1,7 @@
 /* Ejected Cube service worker: offline play after the first visit.
  * HTML is network-first (so new deploys show up), hashed assets are
  * cache-first (their names change whenever their content does). */
-const CACHE = 'ejected-cube-v2';
+const CACHE = 'ejected-cube-v3';
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();

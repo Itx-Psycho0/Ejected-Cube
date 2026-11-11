@@ -1,5 +1,7 @@
 import {
   BufferGeometry,
+  Color,
+  Float32BufferAttribute,
   ConeGeometry,
   CylinderGeometry,
   IcosahedronGeometry,
@@ -18,9 +20,12 @@ const geoNoise = new Noise(777);
 
 /** Merge several geometries (dropping mismatched attributes) into one draw call. */
 export function merge(geos: BufferGeometry[]): BufferGeometry {
+  const withColor = geos.every((g) => !!g.attributes.color);
+  const keep = withColor ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];
   const clean = geos.map((g) => {
     const ng = g.index ? g.toNonIndexed() : g;
-    for (const k of Object.keys(ng.attributes)) if (!['position', 'normal', 'uv'].includes(k)) ng.deleteAttribute(k);
+    for (const k of Object.keys(ng.attributes)) if (!keep.includes(k)) ng.deleteAttribute(k);
+    if (!ng.attributes.uv) ng.setAttribute('uv', new Float32BufferAttribute(new Float32Array(ng.attributes.position.count * 2), 2));
     return ng;
   });
   const out = mergeGeometries(clean, false);
@@ -145,4 +150,30 @@ export function fishGeometry(length = 6, girth = 1.4): BufferGeometry {
   fin.scale(1, 1, 0.12);
   fin.translate(0, girth * 0.9, 0);
   return merge([body, tail, fin]);
+}
+
+/** Bake a flat vertex colour into a geometry (multiplied by instance colour later). */
+export function paint(g: BufferGeometry, hex: number): BufferGeometry {
+  const c = new Color(hex);
+  const n = g.attributes.position.count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    arr[i * 3] = c.r;
+    arr[i * 3 + 1] = c.g;
+    arr[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new Float32BufferAttribute(arr, 3));
+  return g;
+}
+
+/** Merge parts that each carry a baked colour: [geometry, hex][] */
+export function mergePainted(parts: [BufferGeometry, number][]): BufferGeometry {
+  return merge(parts.map(([g, c]) => paint(g, c)));
+}
+
+/** Faceted look for paper / low-poly props. */
+export function facet(g: BufferGeometry): BufferGeometry {
+  const ng = g.index ? g.toNonIndexed() : g;
+  ng.computeVertexNormals();
+  return ng;
 }

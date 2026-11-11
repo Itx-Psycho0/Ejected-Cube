@@ -1,5 +1,10 @@
 import { NO_UPGRADES, type Upgrades } from './meta';
 import type { QualityLevel } from '../core/Quality';
+import type { Difficulty } from './levels';
+import type { ThemeId } from '../themes/themes';
+import { THEME_IDS } from '../themes/themes';
+import { starterMissions, type Mission, type MissionKind } from './missions';
+import { DEFAULT_LOADOUT, type Loadout } from './cosmetics';
 
 export interface Settings {
   master: number;
@@ -10,21 +15,29 @@ export interface Settings {
   reducedMotion: boolean;
   showFps: boolean;
   hints: boolean;
+  difficulty: Difficulty;
+  /** Worlds that can appear when the game picks one at random. */
+  themePool: ThemeId[];
+  /** 'random', or one world to always use. */
+  lockTheme: 'random' | ThemeId;
+  /** Interface follows the current world, or stays on one look. */
+  uiFollowsWorld: boolean;
+  hudScale: number;
+  control: 'follow' | 'keys';
 }
 
 export interface RunRecord {
   score: number;
-  depth: number;
-  zone: number;
+  level: number;
   daily: boolean;
   date: string;
-  victory: boolean;
+  worlds: number;
 }
 
 export interface SaveData {
-  version: 1;
+  version: 2;
   settings: Settings;
-  pearls: number;
+  shards: number;
   upgrades: Upgrades;
   achievements: string[];
   stats: {
@@ -33,19 +46,31 @@ export interface SaveData {
     kills: number;
     bosses: number;
     victories: number;
-    pearlsTotal: number;
-    plankton: number;
+    shardsTotal: number;
+    sparks: number;
     dashKills: number;
     reveals: number;
     seconds: number;
+    flares: number;
+    powerups: number;
   };
-  best: { score: number; depth: number };
+  best: { score: number; level: number };
+  /** Highest level ever reached; unlocks checkpoints. */
+  highestLevel: number;
   runs: RunRecord[];
   daily: { date: string; best: number };
-  tutorialSeen: boolean;
+  missions: Mission[];
+  missionTiers: Partial<Record<MissionKind, number>>;
+  owned: string[];
+  loadout: Loadout;
+  worldsSeen: ThemeId[];
+  storySeen: boolean;
+  tutorialDone: boolean;
+  coachDone: boolean;
 }
 
-const KEY = 'ejected-cube:save:v1';
+const KEY = 'ejected-cube:save:v2';
+const OLD_KEY = 'ejected-cube:save:v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   master: 0.8,
@@ -56,49 +81,75 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
   showFps: false,
   hints: true,
+  difficulty: 'normal',
+  themePool: [...THEME_IDS],
+  lockTheme: 'random',
+  uiFollowsWorld: true,
+  hudScale: 1,
+  control: 'follow',
 };
 
 function fresh(): SaveData {
   return {
-    version: 1,
-    settings: { ...DEFAULT_SETTINGS },
-    pearls: 0,
+    version: 2,
+    settings: { ...DEFAULT_SETTINGS, themePool: [...THEME_IDS] },
+    shards: 0,
     upgrades: { ...NO_UPGRADES },
     achievements: [],
-    stats: { runs: 0, deaths: 0, kills: 0, bosses: 0, victories: 0, pearlsTotal: 0, plankton: 0, dashKills: 0, reveals: 0, seconds: 0 },
-    best: { score: 0, depth: 6000 },
+    stats: { runs: 0, deaths: 0, kills: 0, bosses: 0, victories: 0, shardsTotal: 0, sparks: 0, dashKills: 0, reveals: 0, seconds: 0, flares: 0, powerups: 0 },
+    best: { score: 0, level: 0 },
+    highestLevel: 1,
     runs: [],
     daily: { date: '', best: 0 },
-    tutorialSeen: false,
+    missions: starterMissions(),
+    missionTiers: {},
+    owned: [],
+    loadout: { ...DEFAULT_LOADOUT },
+    worldsSeen: [],
+    storySeen: false,
+    tutorialDone: false,
+    coachDone: false,
   };
 }
 
-/**
- * Persistent progress in localStorage. Every access is guarded: private
- * windows and blocked storage simply fall back to an in-memory save.
- */
+function read(key: string) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persistent progress in localStorage, with an in-memory fallback. */
 export class Save {
   data: SaveData;
 
   constructor() {
-    this.data = fresh();
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<SaveData>;
-        const f = fresh();
-        this.data = {
-          ...f,
-          ...parsed,
-          settings: { ...f.settings, ...parsed.settings },
-          upgrades: { ...f.upgrades, ...parsed.upgrades },
-          stats: { ...f.stats, ...parsed.stats },
-          best: { ...f.best, ...parsed.best },
-          daily: { ...f.daily, ...parsed.daily },
-        };
+    const f = fresh();
+    const p = read(KEY) as Partial<SaveData> | null;
+    if (p) {
+      this.data = {
+        ...f,
+        ...p,
+        settings: { ...f.settings, ...p.settings },
+        upgrades: { ...f.upgrades, ...p.upgrades },
+        stats: { ...f.stats, ...p.stats },
+        best: { ...f.best, ...p.best },
+        daily: { ...f.daily, ...p.daily },
+        loadout: { ...f.loadout, ...p.loadout },
+        missions: p.missions?.length === 3 ? p.missions : f.missions,
+      };
+      if (!this.data.settings.themePool?.length) this.data.settings.themePool = [...THEME_IDS];
+    } else {
+      this.data = f;
+      // Carry pearls and upgrades over from the first version of the game.
+      const old = read(OLD_KEY) as { pearls?: number; upgrades?: Upgrades } | null;
+      if (old) {
+        this.data.shards = old.pearls ?? 0;
+        this.data.upgrades = { ...f.upgrades, ...old.upgrades };
+        this.data.storySeen = false;
       }
-    } catch {
-      /* storage unavailable: keep the fresh save */
     }
   }
 
@@ -110,7 +161,6 @@ export class Save {
     }
   }
 
-  /** Returns true the first time an achievement is unlocked. */
   unlock(id: string): boolean {
     if (this.data.achievements.includes(id)) return false;
     this.data.achievements.push(id);
@@ -123,7 +173,7 @@ export class Save {
     this.data.runs.sort((a, b) => b.score - a.score);
     this.data.runs = this.data.runs.slice(0, 10);
     if (r.score > this.data.best.score) this.data.best.score = r.score;
-    if (r.depth < this.data.best.depth) this.data.best.depth = r.depth;
+    if (r.level > this.data.best.level) this.data.best.level = r.level;
     this.write();
   }
 
@@ -131,6 +181,7 @@ export class Save {
     const settings = this.data.settings;
     this.data = fresh();
     this.data.settings = settings;
+    this.data.storySeen = true;
     this.write();
   }
 }
