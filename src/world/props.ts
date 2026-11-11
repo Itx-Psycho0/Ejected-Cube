@@ -507,6 +507,34 @@ function orbit(): PropGeometry {
   };
 }
 
+function ember(): PropGeometry {
+  const dead = paint(branchCoral(91), W);
+  dead.scale(1.4, 2.2, 1.4);
+  const spikes = crystals(5);
+  spikes.scale(1.2, 1.8, 1.2);
+  const basalt = mergePainted([
+    [at(new CylinderGeometry(4, 4.6, 9, 6), 0, 4.5, 0), W],
+    [at(new CylinderGeometry(3.4, 4, 13, 6), 6, 6.5, 2), W],
+    [at(new CylinderGeometry(3, 3.4, 6, 6), -5, 3, -2), W],
+  ]);
+  const [ra, rb] = rocks();
+  const vent = ventChimney(66);
+  return {
+    tall: facet(dead),
+    tallScale: [0.8, 1.4],
+    cluster: [spikes, facet(basalt), paint(lumpySphere(1, 1, 0.3, 1, 2).scale(7, 3, 6), W)],
+    clusterScale: [0.9, 1.6],
+    stem: crystals(3).scale(0.3, 0.3, 0.3),
+    head: paint(new IcosahedronGeometry(0.01, 0), W),
+    rockA: facet(ra),
+    rockB: facet(rb),
+    special: paint(vent, W),
+    specialGlow: paint(new SphereGeometry(3.6, 10, 6), W),
+    specialTop: vent.userData.height ?? 40,
+    plume: 'smoke',
+  };
+}
+
 const builders: Record<PropSet, () => PropGeometry> = {
   abyss,
   paper,
@@ -519,6 +547,10 @@ const builders: Record<PropSet, () => PropGeometry> = {
   mesa,
   glacier,
   orbit,
+  autumn: summer,
+  ember,
+  lagoon: abyss,
+  nebula: orbit,
 };
 
 const cache = new Map<PropSet, PropGeometry>();

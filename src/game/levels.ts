@@ -1,7 +1,7 @@
 import type { EnemyKind } from '../entities/Enemies';
 import type { Family } from '../themes/themes';
 
-export type BossKind = 'warden' | 'lantern' | 'chain' | 'kraken' | 'leviathan' | 'storm' | 'zeppelin' | 'dragon' | 'core' | 'dreadnought' | 'wyrm';
+export type BossKind = 'warden' | 'lantern' | 'chain' | 'kraken' | 'leviathan' | 'storm' | 'zeppelin' | 'dragon' | 'core' | 'dreadnought' | 'wyrm' | 'blot';
 export type Difficulty = 'relaxed' | 'normal' | 'hard';
 
 export interface BossInfo {
@@ -12,28 +12,31 @@ export interface BossInfo {
 
 const B = (kind: BossKind, name: string, title: string): BossInfo => ({ kind, name, title });
 
-/** The Blot takes a shape that suits the world it is in. Five boss slots per journey. */
+/** The villain. Every fifth boss slot (level 15, 30...) is the Blot itself. */
+export const THE_BLOT = B('blot', 'The Blot', 'The ink itself. Everything you have fought so far was a piece of it');
+
+/** Bosses 1-4 are creatures of each world stained with the Blot's ink. */
 export const BOSS_TABLE: Record<Family, BossInfo[]> = {
   water: [
     B('warden', 'Thermal Warden', 'A crab the size of a house, lit from inside'),
     B('lantern', 'The Lantern', 'It hunts by the light you carry'),
     B('chain', 'The Chain', 'Forty links, and every one of them can sting'),
     B('kraken', 'Kraken', 'Ten arms, all reaching for you'),
-    B('leviathan', 'Leviathan', 'The first stain. The one that tore the Atlas'),
+    THE_BLOT,
   ],
   sky: [
     B('storm', 'Thunderhead', 'Watch the marked lanes. Lightning follows'),
     B('zeppelin', 'Ironclad Airship', 'Guns, bombs and a very large nose'),
     B('dragon', 'Kite Dragon', 'A paper tail a hundred metres long'),
     B('storm', 'Thunderhead', 'It came back angrier'),
-    B('zeppelin', 'Ironclad Airship', 'Refitted. Reloaded'),
+    THE_BLOT,
   ],
   space: [
     B('core', 'Sentinel Core', 'Its armour turns. Shoot the heart when it shows'),
     B('dreadnought', 'Dreadnought', 'Stay out of the main gun’s lane'),
     B('wyrm', 'Star Wyrm', 'It swims in vacuum'),
     B('core', 'Sentinel Core', 'More arms on the spiral this time'),
-    B('dreadnought', 'Dreadnought', 'The flagship'),
+    THE_BLOT,
   ],
 };
 
@@ -49,6 +52,8 @@ export interface LevelDef {
   /** Multiplier on how fast flying burns energy. */
   drain: number;
   scroll: number;
+  /** Chance a spawned creature is ink-stained (tougher, drops a shard). */
+  eliteChance: number;
   /** Which of the five boss slots this level ends with, or -1. */
   bossSlot: number;
   bossDifficulty: number;
@@ -84,14 +89,15 @@ export function levelDef(n: number): LevelDef {
   if (n >= 7) enemies.push(['puffer', 1.8]);
   return {
     n,
-    duration: Math.min(80, 40 + n * 2.5),
-    spawnRate: Math.min(2.6, 0.42 + t * 0.11),
+    duration: Math.min(70, 34 + n * 2),
+    spawnRate: Math.min(3.2, 0.8 + t * 0.13),
     enemies,
     enemyHp: 1 + t * 0.11 + cycle * 0.5,
     enemyDamage: 1 + t * 0.07 + cycle * 0.25,
     drain: 1 + t * 0.09,
-    bulletSpeed: Math.min(1.6, 0.85 + t * 0.03),
-    scroll: Math.min(1.5, 1 + t * 0.03),
+    bulletSpeed: Math.min(1.7, 0.95 + t * 0.035),
+    scroll: Math.min(1.6, 1 + t * 0.035),
+    eliteChance: n < 4 ? 0 : Math.min(0.35, (n - 3) * 0.04),
     bossSlot: isBoss ? (n / BOSS_EVERY - 1) % 5 : -1,
     bossDifficulty: 0.8 + ((n / BOSS_EVERY - 1) % 5) * 0.1 + cycle * 0.6,
     checkpoint: (n - 1) % BOSS_EVERY === 0,

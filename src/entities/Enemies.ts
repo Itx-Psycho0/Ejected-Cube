@@ -10,7 +10,12 @@ import { makeSky, makeSpace } from './EnemyFamilies';
 import type { Family } from '../themes/themes';
 import { Random } from '../core/Random';
 import { clamp, damp } from '../core/math';
-import type { IUniform } from 'three';
+import { Mesh, MeshBasicMaterial, SphereGeometry, type IUniform } from 'three';
+
+/** Shared dark aura and red eye that mark ink-stained elites. */
+const AURA_GEO = new SphereGeometry(1, 16, 12);
+const AURA_MAT = new MeshBasicMaterial({ color: 0x0a0610, transparent: true, opacity: 0.32, depthWrite: false });
+const EYE_MAT = new MeshBasicMaterial({ color: 0xff2a3a, toneMapped: false });
 
 export interface Enemy {
   active: boolean;
@@ -33,6 +38,9 @@ export interface Enemy {
   revealed: number;
   stunned: number;
   scale: number;
+  /** Ink-stained: tougher, drips ink, drops a shard. */
+  elite: boolean;
+  grazed: boolean;
 }
 
 interface Spec {
@@ -97,6 +105,16 @@ export class Enemies {
       for (let i = 0; i < ENEMY_SPECS[kind].pool; i++) {
         const visual = new FamilyVisual({ water: factories[kind](), sky: makeSky(kind, i), space: makeSpace(kind) });
         visual.root.visible = false;
+        const spec = ENEMY_SPECS[kind];
+        const aura = new Mesh(AURA_GEO, AURA_MAT);
+        aura.scale.setScalar(spec.radius * 1.45);
+        aura.name = 'aura';
+        aura.visible = false;
+        const eye = new Mesh(new SphereGeometry(1.4, 8, 6), EYE_MAT);
+        eye.position.set(-spec.radius * 0.5, spec.radius * 0.3, spec.radius * 0.9);
+        eye.name = 'inkEye';
+        eye.visible = false;
+        visual.root.add(aura, eye);
         scene.add(visual.root);
         this.list.push({
           active: false,
@@ -118,6 +136,8 @@ export class Enemies {
           revealed: 0,
           stunned: 0,
           scale: 1,
+          elite: false,
+          grazed: false,
         });
       }
     }
@@ -132,17 +152,23 @@ export class Enemies {
     this.rnd.reseed(seed);
   }
 
-  spawn(kind: EnemyKind, x: number, y: number, hpMult = 1): Enemy | null {
+  spawn(kind: EnemyKind, x: number, y: number, hpMult = 1, elite = false): Enemy | null {
     const e = this.list.find((en) => !en.active && en.kind === kind);
     if (!e) return null;
     const spec = ENEMY_SPECS[kind];
     e.active = true;
     e.pos.set(x, y);
     e.vel.set(0, 0);
-    e.maxHp = e.hp = Math.ceil(spec.hp * hpMult);
+    e.elite = elite;
+    e.grazed = false;
+    e.maxHp = e.hp = Math.ceil(spec.hp * hpMult * (elite ? 2.5 : 1));
+    e.score = spec.score * (elite ? 2 : 1);
+    const aura = e.visual.root.getObjectByName('aura');
+    const inkEye = e.visual.root.getObjectByName('inkEye');
+    if (aura) aura.visible = elite;
+    if (inkEye) inkEye.visible = elite;
     e.radius = spec.radius;
     e.contactDamage = spec.contact;
-    e.score = spec.score;
     e.age = 0;
     e.phase = this.rnd.next() * 10;
     e.state = 0;
@@ -169,26 +195,27 @@ export class Enemies {
       this.spawnAcc -= 1 + this.rnd.range(-0.25, 0.25);
       const kind = this.rnd.weighted(level.enemies);
       const hp = level.enemyHp;
+      const elite = this.rnd.chance(level.eliteChance);
       const b = ctx.bounds;
       const x = b.x + 40;
       switch (kind) {
         case 'lanternfish': {
           const n = this.rnd.int(3, 5);
           const y = this.rnd.range(-b.y * 0.6, b.y * 0.7);
-          for (let i = 0; i < n; i++) this.spawn('lanternfish', x + i * 18, y + this.rnd.range(-20, 20), hp);
+          for (let i = 0; i < n; i++) this.spawn('lanternfish', x + i * 18, y + this.rnd.range(-20, 20), hp, elite && i === 0);
           break;
         }
         case 'mine': {
           const floor = ctx.floorAt(x);
           const y = clamp(this.rnd.range(floor + 50, b.y * 0.55), floor + 40, b.y * 0.6);
-          this.spawn('mine', x, y, hp);
+          this.spawn('mine', x, y, hp, elite);
           break;
         }
         case 'debris':
-          this.spawn('debris', this.rnd.range(0, b.x + 60), b.y + 40, hp);
+          this.spawn('debris', this.rnd.range(0, b.x + 60), b.y + 40, hp, elite);
           break;
         default:
-          this.spawn(kind, x, this.rnd.range(-b.y * 0.7, b.y * 0.75), hp);
+          this.spawn(kind, x, this.rnd.range(-b.y * 0.7, b.y * 0.75), hp, elite);
       }
     }
   }
@@ -339,6 +366,7 @@ export class Enemies {
       r.position.set(e.pos.x, e.pos.y, 0);
       // Ease in from nothing so spawns never pop.
       const grow = Math.min(1, e.age * 4);
+      if (e.elite && Math.random() < dt * 6) this.particles.burst(this.v3.set(e.pos.x, e.pos.y - e.radius * 0.6, 3), { count: 1, color: 0x0a0a10, speed: 6, size: 6, life: 1.1, drag: 1, gravity: -60, smoke: true });
       if (e.kind !== 'puffer') r.scale.setScalar((1 + e.flash * 0.15) * grow);
 
       const g = e.visual;

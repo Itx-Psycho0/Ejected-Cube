@@ -8,6 +8,7 @@ import { Kraken } from './Kraken';
 import { Leviathan } from './Leviathan';
 import { Storm, Zeppelin } from './SkyBosses';
 import { Core, Dreadnought } from './SpaceBosses';
+import { BlotBoss } from './BlotBoss';
 
 export type { Boss, BossContext, HitCircle } from './Boss';
 
@@ -35,5 +36,7 @@ export function createBoss(kind: BossKind, difficulty: number): Boss & { extras?
       return new Dreadnought(difficulty);
     case 'wyrm':
       return new Chain(difficulty, CHAIN_SKINS.space);
+    case 'blot':
+      return new BlotBoss(difficulty);
   }
 }

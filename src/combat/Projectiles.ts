@@ -49,6 +49,8 @@ export interface Bullet {
   life: number;
   gravity: number;
   color: Color;
+  /** Set once a near miss has been counted. */
+  grazed: boolean;
   index: number;
 }
 
@@ -57,7 +59,7 @@ const BULLET_COLORS: Record<BulletKind, number> = {
   spike: 0xffd166,
   lava: 0xff7a1a,
   tooth: 0xf3f0e6,
-  ink: 0x3a2a5a,
+  ink: 0x6a1a8a,
 };
 
 /**
@@ -112,6 +114,7 @@ export class Projectiles {
       life: 0,
       gravity: 0,
       color: new Color(),
+      grazed: false,
       index,
     }));
   }
@@ -139,6 +142,7 @@ export class Projectiles {
     b.gravity = opts.gravity ?? 0;
     b.life = opts.life ?? 6;
     b.color.setHex(BULLET_COLORS[kind]);
+    b.grazed = false;
     return b;
   }
 
@@ -213,7 +217,7 @@ export class Projectiles {
       }
       d.updateMatrix();
       this.bulletMesh.setMatrixAt(n, d.matrix);
-      this.bulletMesh.setColorAt(n, this.tmpColor.copy(b.color).multiplyScalar(b.kind === 'ink' ? 1 : 2.4));
+      this.bulletMesh.setColorAt(n, this.tmpColor.copy(b.color).multiplyScalar(b.kind === 'ink' ? 1.6 : 2.4));
       n++;
     }
     this.bulletMesh.count = n;

@@ -51,6 +51,8 @@ function page(x: number, y: number, w: number, h: number, colors: string[], rot:
 
 interface Scene {
   text: string;
+  /** Voice-over clip key. */
+  voice: string;
   bg: string;
   svg: string;
   /** Extra class on the scene root. */
@@ -66,7 +68,8 @@ function introScenes(): Scene[] {
   }).join('');
   return [
     {
-      text: 'Before there were maps, there was the Atlas: a book where every page was a whole world.',
+      text: 'Before there were maps, there was the Atlas. A book where every page was a whole world.',
+      voice: 'story-1',
       bg: '#bcd9e6',
       svg: `
         ${cloud(160, 120, 1.4, 1)}${cloud(1180, 90, 1.1, 3)}${cloud(760, 170, 0.8, 5)}
@@ -80,7 +83,8 @@ function introScenes(): Scene[] {
         <g class="pop" style="animation-delay:1.4s"><circle cx="1240" cy="250" r="56" fill="${MUSTARD}"/></g>`,
     },
     {
-      text: 'At its heart turned the Atlas Engine, and one small cube of light kept every page turning.',
+      text: 'At its heart turned the Atlas Engine. And one small cube of light kept every page turning.',
+      voice: 'story-2',
       bg: NAVY,
       svg: `
         <g opacity=".9">${gear(560, 470, 210, 16, '#3a4a7a', 'spin')}${gear(1010, 330, 140, 12, '#4c5f96', 'spin rev')}${gear(1060, 640, 110, 10, '#2f3d68', 'spin')}</g>
@@ -93,7 +97,8 @@ function introScenes(): Scene[] {
         ${cube(800, 450, 130, 'pop')}`,
     },
     {
-      text: 'Then a single drop of ink fell. The Blot spread from page to page, swallowing colour and shape.',
+      text: 'Then a single drop of ink fell. It learned to think. It called itself the Blot, and it wanted every page for itself.',
+      voice: 'story-3',
       bg: '#e8e2d4',
       svg: `
         <g class="grey">${page(330, 520, 280, 210, ['#bcd9e6', '#7fae6e', MUSTARD], -4)}${page(800, 560, 280, 210, ['#f2c9b1', '#a7c4a0', TOMATO], 2)}${page(1270, 520, 280, 210, ['#9cc8dc', '#eef6f9', TEAL], -2)}</g>
@@ -103,7 +108,8 @@ function introScenes(): Scene[] {
           <circle cx="1110" cy="420" r="26" fill="#141418"/><circle cx="470" cy="300" r="18" fill="#141418"/></g>`,
     },
     {
-      text: 'With its last turn, the Engine did the only thing it could. It threw the cube out into the pages.',
+      text: 'With its last turn, the Engine did the only thing it could. It threw the cube out, into the pages.',
+      voice: 'story-4',
       bg: '#2b2f45',
       svg: `
         <g class="shake">${gear(520, 500, 200, 16, '#3a4a7a')}${gear(900, 360, 120, 12, '#4c5f96')}
@@ -113,9 +119,21 @@ function introScenes(): Scene[] {
         ${[0, 1, 2, 3, 4].map((i) => `<rect class="drift" x="${700 + i * 150}" y="${200 + (i % 3) * 140}" width="40" height="28" fill="${PAPER}" transform="rotate(${i * 23} ${720 + i * 150} ${214 + (i % 3) * 140})"/>`).join('')}`,
     },
     {
-      text: 'Now the pages are scattered. Every world you cross gives back a little light. Gather enough, and the cube can find its way home.',
+      text: 'Now the Blot sends its creatures after you, each one stained with its ink. Gather the light. Find the way home.',
+      voice: 'story-5',
       bg: '#d8dfe6',
-      svg: `${pages}<g class="travel">${cube(800, 420, 70)}</g>`,
+      svg: `${pages}<g class="travel">${cube(800, 420, 70)}</g>
+        <g class="spread" style="animation-duration:7s"><path d="M1600 0 C 1450 40 1380 180 1470 260 C 1380 330 1420 470 1600 500 Z" fill="#141418" opacity=".85"/></g>`,
+    },
+    {
+      text: 'And when the ink finally comes for you itself... do not look away.',
+      voice: 'story-6',
+      bg: '#101014',
+      svg: `<g class="spread" style="animation-duration:3.5s">
+          <path d="M800 120 C 1180 100 1380 300 1300 470 C 1420 620 1180 820 960 760 C 820 880 560 840 520 700 C 300 680 220 470 380 380 C 300 220 520 120 800 120 Z" fill="#000"/></g>
+        <g class="eye-open"><ellipse cx="800" cy="440" rx="190" ry="96" fill="#f2ecdf"/>
+          <circle cx="800" cy="440" r="70" fill="${TOMATO}"/><circle cx="800" cy="440" r="34" fill="#000"/><circle cx="824" cy="416" r="12" fill="#fff"/></g>
+        ${[0, 1, 2, 3, 4].map((i) => `<path class="drip" style="animation-delay:${0.5 + i * 0.3}s" d="M${560 + i * 120} 760 q 10 60 0 120" stroke="#000" stroke-width="${14 - i}" stroke-linecap="round" fill="none"/>`).join('')}`,
     },
   ];
 }
@@ -123,12 +141,14 @@ function introScenes(): Scene[] {
 function endingScenes(): Scene[] {
   return [
     {
-      text: 'Fifteen pages later, the cube found the Engine. It was quiet, and very dark.',
+      text: 'The Blot came at last. And the cube did not look away.',
+      voice: 'ending-1',
       bg: NAVY,
       svg: `<g opacity=".7">${gear(560, 470, 210, 16, '#3a4a7a')}${gear(1010, 330, 140, 12, '#4c5f96')}</g><g class="travel">${cube(800, 450, 110)}</g>`,
     },
     {
-      text: 'The gears caught. The pages flew home. The Atlas is whole again, for now. Ink never quite dries.',
+      text: 'The ink scattered. The gears caught. The pages flew home. The Atlas is whole again, for now. Ink never quite dries.',
+      voice: 'ending-2',
       bg: '#bcd9e6',
       svg: `<g opacity=".95">${gear(560, 470, 210, 16, '#3a4a7a', 'spin')}${gear(1010, 330, 140, 12, '#4c5f96', 'spin rev')}</g>${cube(800, 450, 130, 'pop')}
         ${THEME_IDS.map((id, i) => page(200 + i * 130, 120 + (i % 2) * 60, 110, 80, [THEMES[id].swatches[1], THEMES[id].swatches[3] ?? THEMES[id].swatches[2], THEMES[id].swatches[2]], i * 7 - 30, 'bob')).join('')}`,
@@ -149,6 +169,7 @@ export class StoryPlayer {
     private onFinish: () => void,
   ) {
     this.scenes = kind === 'intro' ? introScenes() : endingScenes();
+    audio.preloadVoice(this.scenes.map((sc) => sc.voice));
     this.root = document.createElement('div');
     this.root.id = 'story';
     this.root.innerHTML = `<div class="layer" data-s></div><div class="grain"></div>
@@ -193,8 +214,15 @@ export class StoryPlayer {
       .join('');
     layer.innerHTML = `<svg class="scene" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">${s.svg}</svg><div class="caption">${words}</div>`;
     audio.pageFlip();
-    const read = 2600 + s.text.split(' ').length * 260;
-    this.timer = window.setTimeout(() => this.next(), read);
+    // The narrator sets the pace; the timer is a fallback when audio is off.
+    const fallback = 2600 + s.text.split(' ').length * 300;
+    const index = this.index;
+    this.timer = window.setTimeout(() => this.next(), fallback);
+    void audio.speak(s.voice).then((dur) => {
+      if (this.done || this.index !== index || dur <= 0) return;
+      clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => this.next(), 900);
+    });
   }
 
   /** Tear the page in two and reveal the game underneath. */
@@ -202,6 +230,7 @@ export class StoryPlayer {
     if (this.done) return;
     this.done = true;
     clearTimeout(this.timer);
+    audio.stopVoice();
     window.removeEventListener('keydown', this.onKey);
     audio.tear();
     const snapshot = this.root.innerHTML;

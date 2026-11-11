@@ -47,11 +47,19 @@ All models are authored with standard PBR materials. `MaterialStyler` builds a c
 
 ## Levels
 
-`game/levels.ts` turns a level number into a `LevelDef`: duration, spawn rate, enemy mix (new types unlock at levels 2, 3, 5 and 7), enemy health and damage multipliers, bullet speed, scroll speed, energy burn, and a boss slot every third level. `BOSS_TABLE[family][slot]` resolves the slot to a boss that fits the current world when the fight starts, and scrolling stops for the fight. The level right after a boss starts slightly easier, which creates a sawtooth curve. After level 15 the cycle repeats with stronger bosses.
+`game/levels.ts` turns a level number into a `LevelDef`: duration, spawn rate, enemy mix (new types unlock at levels 2, 3, 5 and 7), enemy health and damage multipliers, bullet speed, scroll speed, energy burn, a boss slot every third level, and the chance of ink-stained elites. `BOSS_TABLE[family][slot]` resolves the slot to a boss that fits the current world when the fight starts, and scrolling stops for the fight. The level right after a boss starts slightly easier, which creates a sawtooth curve. After level 15 the cycle repeats with stronger bosses.
 
 ## Bosses are scripts
 
 Each boss extends `Boss` and lists generator functions that `yield` seconds to wait. The base class picks an attack (never the same one twice in a row) and speeds up in phase 2. Collision is a list of hit circles, each with its own damage multiplier and harm flag.
+
+### Boss arrival and the Blot
+
+`Game.startBoss()` switches to a `bossIntro` mode: the music cuts, a siren and a voiced WARNING play, the field is cleared with ink splashes, then the boss enters behind a title card and `audio.setBossMood()` starts the family's fight track. `fx/InkFx.ts` adds an `InkCorruption` to each boss whose strength grows with the boss slot (drips, ink blobs riding the hit circles). Slot 4 is `BlotBoss` for every family, fought on the Ink Mountains world, and it borrows one attack from each family of bosses. `BlotEye` is a large eye in the background that opens during some levels and follows the player.
+
+## Audio
+
+`audio/AudioEngine.ts` has music, SFX, voice and ambience buses. A world's `mood` (root, scale, BPM, drum style, lead and bass waves, chords) drives a lookahead sequencer. Voice clips are MP3s in `audio/voice/`, loaded with `import.meta.glob`; `speak()` resolves when the line ends so the storybook and villain lines can wait for it.
 
 ## Missions
 

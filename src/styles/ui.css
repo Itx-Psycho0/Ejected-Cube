@@ -1324,6 +1324,276 @@ table.records th {
   font-size: 13px;
 }
 
+/* ============ boss warning & title ============ */
+#warning {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  animation: warn-flash 0.48s steps(2) infinite;
+}
+@keyframes warn-flash {
+  50% {
+    background: rgba(220, 30, 30, 0.22);
+  }
+}
+#warning .band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 44px;
+  background: repeating-linear-gradient(-45deg, #ffcf2a 0 26px, #141414 26px 52px);
+  animation: band 0.9s linear infinite;
+  opacity: 0.95;
+}
+#warning .band.top {
+  top: 0;
+}
+#warning .band.bottom {
+  bottom: 0;
+  animation-direction: reverse;
+}
+@keyframes band {
+  to {
+    background-position: 74px 0;
+  }
+}
+#warning .word {
+  font: 900 clamp(56px, 12vw, 150px) / 1 var(--display);
+  letter-spacing: 0.12em;
+  color: #ff3b30;
+  text-shadow:
+    0 0 24px rgba(255, 40, 30, 0.7),
+    0 4px 0 #000;
+  animation: warn-word 0.48s steps(2) infinite;
+  text-align: center;
+}
+#warning .word small {
+  display: block;
+  font-size: 0.17em;
+  letter-spacing: 0.3em;
+  color: #fff;
+  margin-top: 10px;
+}
+@keyframes warn-word {
+  50% {
+    opacity: 0.25;
+  }
+}
+.letterbox {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 13vh;
+  background: #000;
+  z-index: 29;
+  pointer-events: none;
+  transition: transform 0.6s var(--ease);
+}
+.letterbox.top {
+  top: 0;
+  transform: translateY(-100%);
+}
+.letterbox.bottom {
+  bottom: 0;
+  transform: translateY(100%);
+}
+.letterbox.on {
+  transform: none;
+}
+#boss-title {
+  position: absolute;
+  left: 6vw;
+  bottom: 17vh;
+  z-index: 31;
+  pointer-events: none;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+#boss-title .tag {
+  font: 700 12px var(--body);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #ff5a4a;
+}
+#boss-title h2 {
+  font: 900 clamp(40px, 8vw, 104px) / 0.95 var(--display);
+  letter-spacing: -0.01em;
+  margin: 4px 0;
+  animation: title-in 0.7s var(--ease) both;
+}
+#boss-title p {
+  margin: 0;
+  max-width: 48ch;
+  font-size: clamp(13px, 1.6vw, 17px);
+  opacity: 0.9;
+  animation: title-in 0.7s 0.15s var(--ease) both;
+}
+@keyframes title-in {
+  from {
+    opacity: 0;
+    transform: translateX(-60px) skewX(-8deg);
+  }
+}
+#boss-title.out {
+  transition: opacity 0.5s;
+  opacity: 0;
+}
+
+/* ============ the Blot speaks ============ */
+#villain {
+  position: absolute;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at center, #120a14, #000);
+  animation: villain-in 0.6s ease both;
+}
+#villain svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+#villain .line {
+  position: relative;
+  font: 400 clamp(22px, 3.6vw, 44px) / 1.25 'Shippori Mincho', serif;
+  color: #f2ecdf;
+  text-align: center;
+  max-width: 24ch;
+  padding: 0 20px;
+  text-shadow: 0 0 18px rgba(200, 40, 60, 0.6);
+}
+#villain .line small {
+  display: block;
+  font: 700 11px var(--body);
+  letter-spacing: 0.4em;
+  color: #e0302a;
+  margin-bottom: 14px;
+}
+#villain.out {
+  transition: opacity 0.6s;
+  opacity: 0;
+}
+@keyframes villain-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ============ rotate your device ============ */
+#rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--bg);
+  color: var(--ink);
+  text-align: center;
+  padding: 24px;
+  pointer-events: auto;
+  font-family: var(--body);
+}
+#rotate .phone {
+  width: 54px;
+  height: 92px;
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  position: relative;
+  animation: rotate-phone 2.2s ease-in-out infinite;
+}
+#rotate .phone::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 12px;
+  height: 3px;
+  margin-left: -6px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+@keyframes rotate-phone {
+  0%,
+  20% {
+    transform: rotate(0);
+  }
+  55%,
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+#rotate h2 {
+  font: var(--title-weight) 26px var(--display);
+  margin: 0;
+}
+#rotate p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 30ch;
+}
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate {
+    display: flex;
+  }
+}
+
+/* Short landscape phones */
+@media (max-height: 480px) and (pointer: coarse) {
+  .dist {
+    font-size: 22px;
+  }
+  .meter {
+    grid-template-columns: auto 120px 3ch;
+  }
+  .ability {
+    width: 44px;
+    height: 44px;
+  }
+  .ammo .n {
+    font-size: 22px;
+  }
+  #touch {
+    bottom: max(16px, env(safe-area-inset-bottom));
+    right: max(110px, calc(env(safe-area-inset-right) + 100px));
+    grid-template-columns: 64px 64px;
+  }
+  #touch button {
+    width: 64px;
+    height: 64px;
+  }
+  #pause-btn {
+    top: max(12px, env(safe-area-inset-top));
+    right: 50%;
+    transform: translateX(50%);
+  }
+  #bossbar {
+    top: 8px;
+    width: 46vw;
+  }
+  #bossbar .name {
+    font-size: 15px;
+  }
+  .center-card h2 {
+    font-size: 34px;
+  }
+  #coach {
+    top: 70px;
+    padding: 10px 12px;
+  }
+  #warning .band {
+    height: 26px;
+  }
+}
+
 /* ============ responsive ============ */
 @media (max-width: 1100px) {
   #title {

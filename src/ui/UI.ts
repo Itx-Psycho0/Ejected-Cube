@@ -117,6 +117,9 @@ export class UI {
   constructor(private save: Save) {
     this.root = document.getElementById('ui')!;
     this.buildHud();
+    document.body.appendChild(
+      h(`<div id="rotate" role="alert"><div class="phone"></div><h2>Turn your phone sideways</h2><p>Ejected Cube plays in landscape. Rotate your device to continue.</p></div>`),
+    );
     this.root.addEventListener('pointerover', (e) => {
       if ((e.target as HTMLElement).closest('.btn, .tile')) audio.uiHover();
     });
@@ -438,6 +441,7 @@ export class UI {
         <label class="field" for="s-master">Master volume <input id="s-master" type="range" min="0" max="1" step="0.05" value="${st.master}"></label>
         <label class="field" for="s-music">Music <input id="s-music" type="range" min="0" max="1" step="0.05" value="${st.music}"></label>
         <label class="field" for="s-sfx">Effects <input id="s-sfx" type="range" min="0" max="1" step="0.05" value="${st.sfx}"></label>
+        <label class="field" for="s-voice">Voice <input id="s-voice" type="range" min="0" max="1" step="0.05" value="${st.voice}"></label>
         <label class="field" for="s-quality">Graphics quality <select id="s-quality">${(['auto', 'high', 'medium', 'low'] as const)
           .map((q) => `<option value="${q}" ${st.quality === q ? 'selected' : ''}>${q[0].toUpperCase() + q.slice(1)}</option>`)
           .join('')}</select></label>
@@ -474,7 +478,7 @@ export class UI {
         </div>${body}</div>
       <button class="btn" data-a="back">Back</button></section>`);
     const emit = () => this.events.emit('settings', { ...st, themePool: [...st.themePool] });
-    const range = (id: string, key: 'master' | 'music' | 'sfx' | 'hudScale') =>
+    const range = (id: string, key: 'master' | 'music' | 'sfx' | 'voice' | 'hudScale') =>
       el.querySelector<HTMLInputElement>(id)?.addEventListener('input', (e) => {
         st[key] = Number((e.target as HTMLInputElement).value);
         emit();
@@ -482,6 +486,7 @@ export class UI {
     range('#s-master', 'master');
     range('#s-music', 'music');
     range('#s-sfx', 'sfx');
+    range('#s-voice', 'voice');
     range('#s-hud', 'hudScale');
     el.querySelector<HTMLSelectElement>('#s-quality')?.addEventListener('change', (e) => {
       st.quality = (e.target as HTMLSelectElement).value as Settings['quality'];
@@ -695,10 +700,74 @@ export class UI {
     setTimeout(place, 650);
   }
 
+  // ------------------------------------------------------------------ boss cinematics
+
+  /** The classic shmup warning: flashing red, hazard bands, a siren. */
+  bossWarning(final: boolean) {
+    const el = h(`<div id="warning"><div class="band top"></div><div class="band bottom"></div>
+      <div class="word">WARNING<small>${final ? 'the ink itself is coming' : 'something big is coming'}</small></div></div>`);
+    this.root.appendChild(el);
+    // The game removes it when the boss arrives; the timer is only a safety net.
+    const t = setTimeout(() => el.remove(), 20000);
+    return () => {
+      clearTimeout(t);
+      el.remove();
+    };
+  }
+
+  /** Letterbox bars and a big name card while the boss rolls in. */
+  bossIntro(name: string, title: string, seconds: number) {
+    const top = h('<div class="letterbox top"></div>');
+    const bottom = h('<div class="letterbox bottom"></div>');
+    const card = h(`<div id="boss-title"><div class="tag">Boss · stained by the Blot</div><h2>${esc(name)}</h2><p>${esc(title)}</p></div>`);
+    this.root.append(top, bottom, card);
+    requestAnimationFrame(() => {
+      top.classList.add('on');
+      bottom.classList.add('on');
+    });
+    setTimeout(() => {
+      top.classList.remove('on');
+      bottom.classList.remove('on');
+      card.classList.add('out');
+    }, seconds * 1000);
+    setTimeout(() => {
+      top.remove();
+      bottom.remove();
+      card.remove();
+    }, seconds * 1000 + 700);
+  }
+
+  /** The villain speaks between pages: ink splashes in from the edges. */
+  villainLine(text: string, until: Promise<unknown>, minSeconds = 3) {
+    const splats = Array.from({ length: 7 }, (_, i) => {
+      const x = [0, 100, 0, 100, 50, 15, 85][i];
+      const y = [0, 0, 100, 100, 0, 55, 45][i];
+      const r = 18 + (i % 3) * 8;
+      return `<circle cx="${x}" cy="${y}" r="${r}" fill="#050508"><animate attributeName="r" from="0" to="${r}" dur="0.7s" begin="${i * 0.06}s" fill="freeze"/></circle>`;
+    }).join('');
+    const el = h(`<div id="villain"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${splats}</svg>
+      <div class="line"><small>THE BLOT</small>${esc(text)}</div></div>`);
+    this.root.appendChild(el);
+    const t0 = performance.now();
+    return until.then(
+      () =>
+        new Promise<void>((resolve) => {
+          const wait = Math.max(0, minSeconds * 1000 - (performance.now() - t0)) + 400;
+          setTimeout(() => {
+            el.classList.add('out');
+            setTimeout(() => {
+              el.remove();
+              resolve();
+            }, 600);
+          }, wait);
+        }),
+    );
+  }
+
   // ------------------------------------------------------------------ page turn
 
   /** A sheet of the next world's paper sweeps across; `mid` runs while the screen is covered. */
-  pageTurn(next: ThemeDef, title: string, sub: string, mid: () => void): Promise<void> {
+  pageTurn(next: ThemeDef, title: string, sub: string, mid: () => void, hold?: () => Promise<unknown>): Promise<void> {
     return new Promise((resolve) => {
       const sheet = h(`<div id="page"><div style="text-align:center;padding:0 24px"><div class="label" style="color:${next.ui.muted}">${esc(sub)}</div>
         <h2 style="font-family:${next.ui.display};font-weight:${next.ui.titleWeight};color:${next.ui.ink}">${esc(title)}</h2>
@@ -712,8 +781,9 @@ export class UI {
         easing: 'cubic-bezier(.6,0,.3,1)',
         fill: 'forwards',
       });
-      a.onfinish = () => {
+      a.onfinish = async () => {
         mid();
+        if (hold) await hold();
         setTimeout(
           () => {
             sheet.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-115%) rotate(-5deg)' }], {

@@ -18,9 +18,9 @@ export interface PlayerStats {
 export const BASE_STATS: PlayerStats = {
   maxEnergy: 100,
   drain: 0.7,
-  fireRate: 7,
+  fireRate: 9,
   damage: 1,
-  dodgeCooldown: 1.1,
+  dodgeCooldown: 0.9,
   magnetRadius: 0,
 };
 
@@ -120,8 +120,8 @@ export class Player {
       const dodging = this.dodgeTime > 0;
       this.dodgeOffset = damp(this.dodgeOffset, dodging ? this.dodgeDir * 62 : 0, dodging ? 22 : 3.2, dt);
       const ty = clamp(this.target.y + this.dodgeOffset, minY, maxY);
-      this.pos.x = damp(this.pos.x, this.target.x, 5.5, dt);
-      this.pos.y = damp(this.pos.y, ty, dodging ? 20 : 7, dt);
+      this.pos.x = damp(this.pos.x, this.target.x, 7.5, dt);
+      this.pos.y = damp(this.pos.y, ty, dodging ? 22 : 9.5, dt);
     } else if (!this.alive) {
       this.vel.y = damp(this.vel.y, -60, 1.5, dt);
       this.vel.x = damp(this.vel.x, -25, 1.5, dt);

@@ -1,7 +1,7 @@
 {
   "name": "Ejected Cube",
   "short_name": "Ejected Cube",
-  "description": "Fly the last cube of light home through ten hand-styled worlds.",
+  "description": "Fly the last cube of light home through fifteen hand-styled worlds.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

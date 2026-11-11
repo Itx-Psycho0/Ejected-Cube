@@ -24,6 +24,7 @@ export interface Settings {
   uiFollowsWorld: boolean;
   hudScale: number;
   control: 'follow' | 'keys';
+  voice: number;
 }
 
 export interface RunRecord {
@@ -89,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiFollowsWorld: true,
   hudScale: 1,
   control: 'follow',
+  voice: 0.9,
 };
 
 function fresh(): SaveData {
@@ -108,7 +110,7 @@ function fresh(): SaveData {
     owned: [],
     loadout: { ...DEFAULT_LOADOUT },
     worldsSeen: [],
-    worldsVersion: 2,
+    worldsVersion: 3,
     storySeen: false,
     tutorialDone: false,
     coachDone: false,
@@ -144,9 +146,9 @@ export class Save {
         missions: p.missions?.length === 3 ? p.missions : f.missions,
       };
       if (!this.data.settings.themePool?.length) this.data.settings.themePool = [...THEME_IDS];
-      if ((p.worldsVersion ?? 1) < 2) {
-        if (!this.data.settings.themePool.includes('orbit')) this.data.settings.themePool.push('orbit');
-        this.data.worldsVersion = 2;
+      if ((p.worldsVersion ?? 1) < 3) {
+        for (const id of ['orbit', 'autumn', 'ember', 'lagoon', 'nebula'] as ThemeId[]) if (!this.data.settings.themePool.includes(id)) this.data.settings.themePool.push(id);
+        this.data.worldsVersion = 3;
         // The controls changed in this version, so offer the tutorial again.
         this.data.tutorialDone = false;
       }

@@ -6,7 +6,9 @@ import { QUALITY, detectQuality, type QualityLevel, type QualityPreset } from '.
 import { QualityGovernor } from '../core/Governor';
 import { Random, dailySeed } from '../core/Random';
 import { clamp, damp, easeOutCubic } from '../core/math';
-import { audio } from '../audio/AudioEngine';
+import { audio, BOSS_MOODS } from '../audio/AudioEngine';
+import { Gates } from '../entities/Gates';
+import { BlotEye, InkCorruption } from '../fx/InkFx';
 import { Atmosphere } from '../world/Atmosphere';
 import { Ground } from '../world/Ground';
 import { Fauna } from '../world/Fauna';
@@ -31,7 +33,7 @@ import { UI, type RunSummary } from '../ui/UI';
 import { applyUiTheme } from '../ui/theme';
 import { StoryPlayer } from '../ui/Story';
 
-type Mode = 'boot' | 'story' | 'menu' | 'hangar' | 'intro' | 'play' | 'boss' | 'transition' | 'dead' | 'ending' | 'victory';
+type Mode = 'boot' | 'story' | 'menu' | 'hangar' | 'intro' | 'play' | 'bossIntro' | 'boss' | 'transition' | 'dead' | 'ending' | 'victory';
 
 interface Run {
   level: number;
@@ -53,13 +55,25 @@ interface Run {
   dodges: number;
   flares: number;
   boss: BossInfo | null;
+  /** Has the Blot's eye already looked in on this level? */
+  eyeDone: boolean;
+  eyeAt: number;
+  tauntDone: boolean;
+  grazes: number;
   worlds: Set<ThemeId>;
   endingShown: boolean;
   tutorial: number; // -1 = not a tutorial, else the current step
   tutorialCount: number;
 }
 
-const BASE_SPEED = 82;
+const BASE_SPEED = 120;
+/** Lines the Blot says after each of its creatures falls. */
+const VILLAIN_LINES = [
+  'You took one of mine. I have so many more.',
+  'Every page you cross, I have already touched.',
+  'Your light is getting smaller, little cube.',
+  'Come, then. Come to the last page.',
+];
 const FIRE_SPEED = 640;
 
 interface TutorialStep {
@@ -96,6 +110,9 @@ export class Game {
   readonly projectiles!: Projectiles;
   readonly enemies!: Enemies;
   readonly pickups!: Pickups;
+  private gates!: Gates;
+  private eye!: BlotEye;
+  private ink: InkCorruption | null = null;
   private rig: CameraRig;
   private flash!: Flash;
   private telegraph!: Telegraph;
@@ -118,6 +135,7 @@ export class Game {
   private enemyCtx!: EnemyContext;
   private bossCtx!: BossContext;
   private busy = false;
+  private readonly coarse = matchMedia('(pointer: coarse)').matches;
 
   constructor(canvas: HTMLCanvasElement) {
     const q = this.save.data.settings.quality;
@@ -174,6 +192,8 @@ export class Game {
     await step(0.65, 'Spotting the Blot', () => {
       (this as { enemies: Enemies }).enemies = new Enemies(this.scene, this.particles, this.projectiles, this.atmo.shared.uTime, this.atmo.shared.uSunColor.value);
       (this as { pickups: Pickups }).pickups = new Pickups(this.scene);
+      this.gates = new Gates(this.scene);
+      this.eye = new BlotEye(this.scene);
       this.makeContexts();
     });
     await step(0.8, 'Inking the outlines', () => {
@@ -218,7 +238,7 @@ export class Game {
         else if (n === 'shoot') audio.enemyHit();
         else audio.explode(0.6);
       },
-      spawnEnemy: (k: EnemyKind, x, y) => this.enemies.spawn(k, x, y, this.run.def.enemyHp),
+      spawnEnemy: (k: EnemyKind, x, y) => this.enemies.spawn(k, x, y, this.run.def.enemyHp, this.run.boss?.kind === 'blot'),
       // Dimming is capped so the screen never goes black.
       darken: (a, s) => this.ui.darken(Math.min(0.3, a), Math.min(2.5, s)),
     };
@@ -237,6 +257,7 @@ export class Game {
     this.player.model.setKind(t.family);
     this.enemies.setFamily(t.family);
     this.pickups.setFamily(t.family);
+    this.gates?.setFamily(t.family);
     this.styler.setStyle(t.material, this.scene);
     this.governor.hold();
     this.renderer.setTheme(t.fx, t.world.skyHorizon, instant);
@@ -275,6 +296,7 @@ export class Game {
     const ui = this.ui;
     ui.events.on('begin', () => {
       audio.unlock();
+      this.landscapeLock();
       this.applySettings(this.save.data.settings);
       if (!this.save.data.storySeen) this.playStory('intro');
       else this.toTitle();
@@ -333,6 +355,15 @@ export class Game {
     });
   }
 
+  /** On phones, go fullscreen and ask for landscape (works on Android; iOS shows the rotate screen instead). */
+  private landscapeLock() {
+    if (!matchMedia('(pointer: coarse)').matches) return;
+    const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
+    const lock = () => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })?.lock?.('landscape').catch(() => {});
+    if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().then(lock, () => {});
+    else void lock();
+  }
+
   private playStory(kind: 'intro' | 'ending') {
     const prev = this.mode;
     this.mode = kind === 'intro' ? 'story' : 'ending';
@@ -381,7 +412,7 @@ export class Game {
     const prevFollow = this.save.data.settings.uiFollowsWorld;
     this.save.data.settings = s;
     this.save.write();
-    audio.setVolumes(s.master, s.music, s.sfx);
+    audio.setVolumes(s.master, s.music, s.sfx, s.voice ?? 0.9);
     this.rig.shakeScale = s.shake && !s.reducedMotion ? 1 : 0;
     this.ui.showFps(s.showFps);
     this.ui.setHudScale(s.hudScale);
@@ -483,7 +514,8 @@ export class Game {
     this.ui.setHudVisible(false);
     this.ui.clearOverlays();
     this.ui.fade(0);
-    audio.setBossMode(false);
+    audio.setBossMood(null);
+    audio.cutMusic(false);
     audio.setPaused(false);
     audio.setEngine('off');
     if (!first) this.ui.show('title');
@@ -491,10 +523,12 @@ export class Game {
 
   private clearWorld() {
     this.enemies?.clear();
+    this.gates?.clear();
+    this.eye?.hide();
     this.pickups?.clear();
     this.projectiles?.clearAll();
     this.telegraph?.clear();
-    if (this.boss) this.removeBoss();
+    this.removeBoss();
   }
 
   startRun(level: number, daily: boolean, tutorial: boolean) {
@@ -529,6 +563,10 @@ export class Game {
           dodges: 0,
           flares: 0,
           boss: null,
+          eyeDone: false,
+          eyeAt: 0.3 + Math.random() * 0.4,
+          tauntDone: false,
+          grazes: 0,
           worlds: new Set(),
           endingShown: level > STORY_END_LEVEL,
           tutorial: tutorial ? 0 : -1,
@@ -557,7 +595,7 @@ export class Game {
   }
 
   private setPaused(p: boolean) {
-    if (!['play', 'boss', 'transition', 'intro'].includes(this.mode)) return;
+    if (!['play', 'boss', 'bossIntro', 'transition', 'intro'].includes(this.mode)) return;
     this.paused = p;
     audio.setPaused(p);
     this.input.releaseAll();
@@ -575,6 +613,8 @@ export class Game {
     }
     this.renderer.playfieldHalfSize(this.bounds);
     this.ui.tick(raw);
+    // Phones held upright see the rotate screen; don't let the run continue under it.
+    if (!this.paused && this.coarse && window.innerHeight > window.innerWidth && ['play', 'boss', 'bossIntro', 'intro'].includes(this.mode)) this.setPaused(true);
     this.governor.update(raw, this.loop.fps, this.quality.level);
 
     if (this.paused || this.mode === 'ending') {
@@ -601,6 +641,7 @@ export class Game {
         break;
       case 'play':
       case 'boss':
+      case 'bossIntro':
       case 'transition':
         this.updatePlay(dt);
         break;
@@ -677,8 +718,9 @@ export class Game {
   private updatePlay(dt: number) {
     const run = this.run;
     const def = run.def;
-    const inBoss = this.mode === 'boss';
+    const inBoss = this.mode === 'boss' || this.mode === 'bossIntro';
     const transition = this.mode === 'transition';
+    if (this.mode === 'bossIntro') this.updateBossIntro(dt);
     const tut = run.tutorial >= 0;
     const diff = DIFFICULTY[this.save.data.settings.difficulty];
     run.time += dt;
@@ -696,7 +738,7 @@ export class Game {
 
     const p = this.player;
     p.update(dt, this.input, this.bounds, this.ground.floorAt(p.pos.x));
-    if (!tut && !transition) p.burn(dt, diff.drain * def.drain * (inBoss ? 0.5 : 1));
+    if (!tut && !transition && this.mode !== 'bossIntro') p.burn(dt, diff.drain * def.drain * (inBoss ? 0.5 : 1));
     if (tut) p.energy = Math.max(p.energy, 40);
     this.handleAbilities(dt);
     this.emitTrail(dt);
@@ -707,6 +749,33 @@ export class Game {
     this.enemyCtx.difficulty = def.bulletSpeed;
     const progress = clamp(run.levelTime / def.duration, 0, 1);
     this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.96, diff.spawn);
+    this.gates.direct(dt, run.level, this.bounds, !inBoss && !transition && !tut && progress < 0.9);
+    this.gates.update(
+      dt,
+      this.scrollSpeed,
+      this.bounds,
+      p.pos.x,
+      p.pos.y,
+      p.radius,
+      () => {
+        if (p.dashing) return;
+        this.hurt(14 * def.enemyDamage);
+      },
+      () => this.gatePassed(),
+    );
+    // The Blot looks in on later levels.
+    if (!run.eyeDone && run.level >= 4 && !inBoss && !tut && progress > run.eyeAt) {
+      run.eyeDone = true;
+      if (Math.random() < 0.7) {
+        this.eye.open(this.bounds.x * (0.2 + Math.random() * 0.4));
+        audio.whisper();
+        if (!run.tauntDone) {
+          run.tauntDone = true;
+          void audio.speak('blot-taunt');
+        }
+      }
+    }
+    this.eye.update(dt, p.pos.x, p.pos.y);
     if (!tut) this.pickups.direct(dt, this.bounds, !transition, !inBoss && !transition, p.energy / p.stats.maxEnergy);
 
     this.updateCombat(dt, inBoss ? BASE_SPEED * 0.5 : this.scrollSpeed);
@@ -836,9 +905,13 @@ export class Game {
       for (const b of this.projectiles.bullets.items) {
         if (!b.active || b.damage <= 0) continue;
         const r = b.radius + p.radius * 0.6;
-        if ((b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2 < r * r) {
+        const d2 = (b.pos.x - p.pos.x) ** 2 + (b.pos.y - p.pos.y) ** 2;
+        if (d2 < r * r) {
           b.active = false;
           this.hurt(b.damage);
+        } else if (!b.grazed && d2 < (r + 16) ** 2) {
+          b.grazed = true;
+          this.graze(b.pos.x, b.pos.y);
         }
       }
     }
@@ -859,10 +932,45 @@ export class Game {
       if (this.boss.state === 'dead') this.onBossDefeated();
     }
 
+    // Near misses with creatures count too.
+    if (p.alive && !p.dashing) {
+      for (const e of this.enemies.list) {
+        if (!e.active || e.grazed) continue;
+        const rr = e.radius + p.radius + 16;
+        if ((e.pos.x - p.pos.x) ** 2 + (e.pos.y - p.pos.y) ** 2 < rr * rr && e.pos.x < p.pos.x) {
+          e.grazed = true;
+          this.graze(e.pos.x, e.pos.y);
+        }
+      }
+    }
+    if (this.ink && this.boss) this.ink.update(dt, this.boss.t, this.boss.hitboxes, this.particles, this.boss.phase2);
+
     const magnet = Math.max(p.powerups.magnet > 0 ? 170 : 0, p.stats.magnetRadius);
     this.pickups.update(dt, pickupSpeed, this.bounds, p.pos.x, p.pos.y, magnet, p.radius + 8, (it) => this.collect(it));
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.5);
     this.ui.vignette(this.damageFlash, p.energy < p.stats.maxEnergy * 0.18 && p.alive);
+  }
+
+  /** Near miss: a little score and flare charge for flying close. */
+  private graze(x: number, y: number) {
+    const run = this.run;
+    if (!run || this.player.invuln > 0) return;
+    run.grazes++;
+    run.score += 25 * Math.max(1, run.level);
+    this.player.lumen = Math.min(1, this.player.lumen + 0.03);
+    audio.graze();
+    this.popupAt((x + this.player.pos.x) / 2, (y + this.player.pos.y) / 2 + 10, 'Close!');
+  }
+
+  private gatePassed() {
+    const run = this.run;
+    run.score += 150 * Math.max(1, run.level);
+    run.combo++;
+    run.comboTimer = 1.8;
+    this.player.lumen = Math.min(1, this.player.lumen + 0.05);
+    this.player.addEnergy(4);
+    audio.gatePass();
+    this.popupAt(this.player.pos.x + 20, this.player.pos.y + 16, 'Clean!');
   }
 
   private damageBoss(amount: number, x: number, y: number) {
@@ -927,6 +1035,10 @@ export class Game {
     } else this.popupAt(e.pos.x, e.pos.y, `+${pts}`);
     this.save.data.stats.kills++;
     this.missionAdd('kills');
+    if (e.elite) {
+      this.pickups.spawn(Math.random() < 0.6 ? 'shard' : 'repair', e.pos.x, e.pos.y);
+      this.particles.burst(this.v3.set(e.pos.x, e.pos.y, 2), { count: 20, color: 0x0a0a12, speed: 120, size: 9, life: 1.2, drag: 2, smoke: true });
+    }
   }
 
   private collect(it: Pickup) {
@@ -937,6 +1049,7 @@ export class Game {
       case 'spark': {
         run.combo = run.comboTimer > 0 ? run.combo + 1 : 1;
         run.comboTimer = 1.6;
+        if (run.combo % 10 === 0) audio.comboMilestone();
         if (run.combo >= 40) this.unlock('combo');
         this.missionMax('combo', run.combo);
         run.sparks++;
@@ -981,34 +1094,85 @@ export class Game {
 
   // ------------------------------------------------------------------ levels & bosses
 
+  /**
+   * Boss entrance in three beats: WARNING (music cuts, siren, creatures
+   * scatter, scrolling stops), then the roll-in (letterbox, name card,
+   * stinger, the boss glides into place), then the fight and its music.
+   */
+  private endWarning?: () => void;
+
   private startBoss() {
-    // The boss matches the world you are in when the fight starts.
-    const info = BOSS_TABLE[this.theme.family][this.run.def.bossSlot];
+    const final = this.run.def.bossSlot === 4;
+    const info = final ? BOSS_TABLE.water[4] : BOSS_TABLE[this.theme.family][this.run.def.bossSlot];
     this.run.boss = info;
-    this.mode = 'boss';
-    this.enemies.clear();
-    this.boss = createBoss(info.kind, this.run.def.bossDifficulty);
-    this.scene.add(this.boss.root);
-    for (const x of this.boss.extras ?? []) this.scene.add(x);
-    this.styler.apply(this.boss.root);
-    for (const x of this.boss.extras ?? []) this.styler.apply(x);
-    this.boss.enter(this.bounds);
-    this.run.bossHullAtStart = this.player.energy;
-    this.player.addEnergy(20);
-    this.ui.card(info.name, info.title, 'Boss');
-    audio.bossRoar();
-    audio.setBossMode(true);
-    this.rig.addTrauma(0.4);
-    this.governor.hold(3);
-    try {
-      this.renderer.compile();
-    } catch {
-      /* optional */
+    this.mode = 'bossIntro';
+    this.modeTime = 0;
+    this.bossIntroStage = 0;
+    audio.cutMusic(true);
+    audio.siren();
+    void audio.speak(final ? 'warn-final' : Math.random() < 0.5 ? 'warn-1' : 'warn-2');
+    this.endWarning = this.ui.bossWarning(final);
+    this.rig.addTrauma(0.25);
+    this.governor.hold(6);
+    audio.preloadVoice([`boss-${info.kind}`, 'victory', 'blot-defeat']);
+  }
+
+  private bossIntroStage = 0;
+
+  private updateBossIntro(_dt: number) {
+    const info = this.run.boss!;
+    const t = this.modeTime;
+    if (this.bossIntroStage === 0 && t > 2.3) {
+      this.bossIntroStage = 1;
+      this.endWarning?.();
+      this.endWarning = undefined;
+      // Whatever is still on screen bursts into ink as the boss arrives.
+      for (const e of this.enemies.list)
+        if (e.active) this.particles.burst(this.v3.set(e.pos.x, e.pos.y, 2), { count: 14, color: 0x0a0a12, speed: 90, size: 8, life: 0.9, drag: 2, smoke: true });
+      this.enemies.clear();
+      this.gates.clear();
+      this.projectiles.clearBullets();
+      this.boss = createBoss(info.kind, this.run.def.bossDifficulty);
+      this.scene.add(this.boss.root);
+      for (const x of this.boss.extras ?? []) this.scene.add(x);
+      this.styler.apply(this.boss.root);
+      for (const x of this.boss.extras ?? []) this.styler.apply(x);
+      this.boss.enter(this.bounds);
+      const slot = this.run.def.bossSlot;
+      this.ink = new InkCorruption(this.boss.root, info.kind === 'blot' ? 1 : (slot + 1) / 4, this.boss.hitboxes[0]?.r ?? 30);
+      const b = this.boss as { onPhase2Taunt?: (() => void) | null };
+      if ('onPhase2Taunt' in b) b.onPhase2Taunt = () => void audio.speak('blot-taunt');
+      this.run.bossHullAtStart = this.player.energy;
+      this.player.addEnergy(20);
+      this.ui.bossIntro(info.name, info.title, 2.4);
+      audio.stinger(info.kind === 'blot');
+      void audio.speak(`boss-${info.kind}`);
+      this.rig.addTrauma(0.6);
+      this.rig.setZoom(1.06);
+      try {
+        this.renderer.compile();
+      } catch {
+        /* optional */
+      }
+    }
+    if (this.bossIntroStage === 1 && t > 3.4) {
+      this.bossIntroStage = 2;
+      audio.cutMusic(false);
+      audio.setBossMood(info.kind === 'blot' ? BOSS_MOODS.blot : BOSS_MOODS[this.theme.family]);
+      audio.bossRoar();
+    }
+    if (this.bossIntroStage === 2 && t > 4.8) {
+      this.rig.setZoom(1);
+      this.mode = 'boss';
     }
   }
 
   private removeBoss() {
+    this.endWarning?.();
+    this.endWarning = undefined;
     if (!this.boss) return;
+    this.ink?.dispose();
+    this.ink = null;
     this.scene.remove(this.boss.root);
     for (const x of this.boss.extras ?? []) this.scene.remove(x);
     this.boss = null;
@@ -1025,8 +1189,11 @@ export class Game {
     this.unlock('boss_first');
     this.unlock('boss_' + this.theme.family);
     if (this.player.energy >= run.bossHullAtStart) this.unlock('untouchable');
+    const slot = run.def.bossSlot;
+    const wasBlot = run.boss?.kind === 'blot';
     this.removeBoss();
-    audio.setBossMode(false);
+    audio.setBossMood(null);
+    void audio.speak(wasBlot ? 'blot-defeat' : 'victory');
     this.popupAt(0, 0, '+3 shards');
     if (run.level >= STORY_END_LEVEL && !run.endingShown) {
       run.endingShown = true;
@@ -1040,11 +1207,11 @@ export class Game {
       this.playStory('ending');
       return;
     }
-    this.levelComplete();
+    this.levelComplete(slot >= 0 && slot < 4 ? slot : -1);
   }
 
   /** Gate reached: bank progress, turn the page to the next level and world. */
-  private levelComplete() {
+  private levelComplete(villain = -1) {
     const run = this.run;
     if (!run.hurtThisLevel) this.missionAdd('clean');
     run.score += 1000 * run.level;
@@ -1058,9 +1225,16 @@ export class Game {
     this.mode = 'transition';
     this.projectiles.clearBullets();
     this.telegraph.clear();
-    const next = this.pickTheme();
+    // The last page of each journey is always the Blot's own world.
+    const next = run.def.bossSlot === 4 ? THEMES.ink : this.pickTheme();
+    run.eyeDone = false;
+    run.eyeAt = 0.3 + Math.random() * 0.4;
+    const hold =
+      villain >= 0
+        ? () => this.ui.villainLine(VILLAIN_LINES[villain], audio.speak(`blot-${villain + 1}`), 3.2)
+        : undefined;
     void this.ui
-      .pageTurn(next, `Level ${run.level}`, run.def.bossSlot >= 0 ? 'Boss level' : next.name, () => {
+      .pageTurn(next, `Level ${run.level}`, run.def.bossSlot === 4 ? 'The last page' : run.def.bossSlot >= 0 ? 'Boss level' : next.name, () => {
         this.enemies.clear();
         this.pickups.clear();
         this.applyTheme(next, true);
@@ -1068,7 +1242,7 @@ export class Game {
         audio.setEngine(next.family);
         this.player.addEnergy(15);
         this.ui.setHudVisible(true, this.input.isTouch);
-      })
+      }, hold)
       .then(() => {
         if (this.mode !== 'transition') return;
         this.mode = 'play';
@@ -1174,7 +1348,8 @@ export class Game {
     this.loop.timeScale = 0.35;
     audio.death();
     audio.setEngine('off');
-    audio.setBossMode(false);
+    audio.setBossMood(null);
+    audio.cutMusic(false);
     this.rig.addTrauma(0.8);
     this.v3.set(this.player.pos.x, this.player.pos.y, 0);
     this.particles.explosion(this.v3, 0xff9a5a, 1.6);
