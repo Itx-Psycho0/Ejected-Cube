@@ -68,10 +68,16 @@ export function patchCaustics(mat: Material, shared: SharedUniforms) {
  * Bends geometry with a travelling sine wave that grows with height,
  * used for kelp, sea fans and tube-worm plumes. Instances get their own phase.
  */
-export function patchSway(mat: Material, uTime: IUniform<number>, amount: IUniform<number>, key: string, also?: SharedUniforms) {
+export function patchSway(
+  mat: Material,
+  uTime: IUniform<number>,
+  amount: number | IUniform<number>,
+  key: string,
+  also?: SharedUniforms,
+) {
   mat.onBeforeCompile = (s) => {
     s.uniforms.uTime = uTime;
-    s.uniforms.uSway = amount;
+    s.uniforms.uSway = typeof amount === 'number' ? { value: amount } : amount;
     if (also) {
       s.uniforms.uCaustics = also.uCaustics;
       s.uniforms.uSunColor = also.uSunColor;
