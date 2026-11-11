@@ -57,9 +57,17 @@ Each boss extends `Boss` and lists generator functions that `yield` seconds to w
 
 `Game.startBoss()` switches to a `bossIntro` mode: the music cuts, a siren and a voiced WARNING play, the field is cleared with ink splashes, then the boss enters behind a title card and `audio.setBossMood()` starts the family's fight track. `fx/InkFx.ts` adds an `InkCorruption` to each boss whose strength grows with the boss slot (drips, ink blobs riding the hit circles). Slot 4 is `BlotBoss` for every family, fought on the Ink Mountains world, and it borrows one attack from each family of bosses. `BlotEye` is a large eye in the background that opens during some levels and follows the player.
 
+## Progress modes
+
+`Settings.progress` is `checkpoint` or `classic`. In Checkpoint mode `SaveData.resumeLevel` is written every time a level starts, so Continue, the death screen's Retry and Restart all use the level you reached. In Classic mode they always start at level 1, and `classicBest` keeps the furthest level. `Game.noteProgress()` is the single place that writes either.
+
+## Drama
+
+`UI.banner()`, `UI.levelSlam()` and `UI.inkEdges()` are CSS overlays. `Game.slowMo` scales `dt` for boss kills (after a short `hitStop`). An ink surge (`startSurge`/`endSurge`) multiplies the spawn rate and the score for seven seconds and raises `audio.setIntensity()`. `fx/SpeedLines.ts` draws instanced streaks whose length and opacity follow the scroll speed.
+
 ## Audio
 
-`audio/AudioEngine.ts` has music, SFX, voice and ambience buses. A world's `mood` (root, scale, BPM, drum style, lead and bass waves, chords) drives a lookahead sequencer. Voice clips are MP3s in `audio/voice/`, loaded with `import.meta.glob`; `speak()` resolves when the line ends so the storybook and villain lines can wait for it.
+`audio/AudioEngine.ts` has music, SFX, voice and ambience buses into a limiter. A world's `mood` (root, scale, BPM, drum style, lead and bass waves, chords) drives a lookahead sequencer with a 16-bar arrangement (intro, groove, breakdown and riser, drop) and a two-bar melody hook generated from the mood. `chillOf()` derives the Chill version (slower, swung, lo-fi drums, sevenths); menus always use it. Voice clips are MP3s in `audio/voice/`, loaded with `import.meta.glob`; `speak()` resolves when the line ends so the storybook and villain lines can wait for it.
 
 ## Missions
 

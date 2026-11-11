@@ -63,5 +63,5 @@ export function toothMaterial() {
 }
 
 export function eyeMaterial() {
-  return new MeshPhysicalMaterial({ color: 0x050505, roughness: 0.05, clearcoat: 1, metalness: 0.2 });
+  return new MeshPhysicalMaterial({ color: 0x050505, roughness: 0.2, clearcoat: 1, metalness: 0.2 });
 }

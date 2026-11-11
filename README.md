@@ -57,8 +57,16 @@ In Settings → Worlds you can choose which worlds are in the rotation, lock the
 - **Story:** an animated paper cut-out storybook with a dramatic voice-over plays on the first visit and can be replayed from the home screen. It ends by tearing in half to reveal the game.
 - **The villain:** the Blot watches you. Its eye opens behind some later levels, every boss carries a growing stain of its ink (drips, ink blobs, ink shots), and after each boss it speaks to you. At level 15 you fight the Blot itself on its own ink page.
 - **Boss arrivals:** a siren and a flashing WARNING screen, the music cuts, then the boss rolls in behind a letterboxed title card with its name spoken aloud, and a heavier boss track for its family kicks in.
+- **Dramatic moments:**
+  - Every level number slams in with the world's name.
+  - At half health a boss freezes the screen, roars and turns **Enraged**.
+  - The killing blow drops into slow motion with a white flash and **Page restored**.
+  - From level 4, an **ink surge** can flood the page: the edges go dark, the Blot's eye opens, the music heats up and creatures pour in for seven seconds at double score. Survive it for a bonus.
+  - At low energy you hear a heartbeat. When you fall, the ink closes in from the edges.
 - **Levels:** numbered levels with a boss every third level. Level 1 is a gentle warm-up. From there, spawn rate, enemy health and damage, bullet speed, scroll speed and energy burn all rise each level, new creature types join at levels 2, 3, 5 and 7, and the level after a boss eases off slightly.
-- **Checkpoints:** after each boss you can start later runs from that level (Journey map).
+- **Two ways to play**, switched on the home screen, in Settings → Gameplay, or explained in How to play:
+  - **Checkpoints** (default): your progress is saved level by level. Die, quit or close the tab, and Continue starts at the level you reached. Any level you have reached can be picked on the Journey map.
+  - **Classic**: one journey, one life. Every death sends you back to level 1. Your best Classic level is kept on the home screen.
 - **Ending:** beating the Blot at level 15 plays the story's ending. Then the pages beyond fifteen continue with stronger bosses.
 - **Difficulty:** Relaxed, Normal and Hard presets.
 - **Daily run:** a date-seeded run, identical for everyone each day.
@@ -67,6 +75,7 @@ In Settings → Worlds you can choose which worlds are in the rotation, lock the
 |---|---|
 | ![Boss warning](docs/screenshots/20-boss-warning.jpg) | ![Boss title card](docs/screenshots/21-boss-intro.jpg) |
 | ![The Blot, final boss](docs/screenshots/22-the-blot.jpg) | ![The Blot speaks](docs/screenshots/23-villain-line.jpg) |
+| ![Level slam and the laser](docs/screenshots/24-level-slam.jpg) | ![Checkpoints or Classic on the home screen](docs/screenshots/25-progress-modes.jpg) |
 
 ## Playing
 
@@ -75,7 +84,7 @@ The controls are deliberately small:
 | Action | Mouse / keyboard | Touch |
 |---|---|---|
 | Fly | Move the mouse: the craft glides to the pointer, pitching and banking as it goes | Drag anywhere |
-| Fire | Hold left click or Space | Automatic |
+| Fire | Automatic: the laser fires on its own (turn Auto-fire off in Settings to fire with left click or Space) | Automatic |
 | Dodge | Shift or right click: a fast barrel roll up or down, toward the pointer. Nothing can hit you during it, and it rams small creatures | DODGE |
 | Flare | Q, when the ring is full: clears the screen | FLARE |
 | Pause | Esc / P | Pause button |
@@ -97,7 +106,10 @@ The first run starts with a four-step **interactive tutorial** (fly, fire, dodge
 
 ## Sound
 
-- **Music** is generated live with WebAudio: a 16th-note sequencer with drums, bass, arpeggio and pads, at 112–140 BPM. Every world has its own key, scale, tempo, drum pattern and sound, and each boss family (plus the Blot) has its own fight track.
+- **Music** is generated live with WebAudio, and every world has its own track: key, scale, tempo, drum pattern, instruments and a melody hook generated from its key. Tracks are arranged like songs: an intro where the filter opens, the groove, a breakdown with a riser and snare roll, then a bigger drop with the hook an octave up.
+  - **Fast** (default): 120–150 BPM, driving drums.
+  - **Chill**: 78–92 BPM, swung lo-fi drums, seventh chords and vinyl crackle. Menus always play the chill version.
+  - Each boss family (plus the Blot) has its own fight track, and ink surges and enraged bosses add extra layers.
 - **Voice-over:** 30 lines for the narrator, the boss announcer and the Blot, generated offline with the [Piper](https://github.com/OHF-Voice/piper1-gpl) neural TTS and a CC0 voice, then processed per character with ffmpeg (the Blot is pitched down, doubled an octave lower and echoed). `scripts/make-voice.py` regenerates them. Music ducks under speech; Voice has its own volume slider.
 - **Sound effects** for everything, from grazes and gate passes to the boss siren and roar.
 
@@ -131,6 +143,10 @@ Runtime dependencies: `three` and `postprocessing` (plus font files).
 ## Performance
 
 - Delta-time simulation: the same speed at any refresh rate
+- No black frames:
+  - A sanitize pass clamps the HDR buffer before bloom, so a stray Inf or NaN pixel can't be blurred across the whole screen.
+  - Flash lights and mirror-like materials are capped so highlights stay in half-float range.
+  - Canvas resizes (phone address bar, fullscreen) happen right before a render instead of between frames.
 - Object pools for every enemy, pickup and projectile: no allocations during play
 - Instanced rendering for props, wildlife, clouds, sparks, bullets and boss limbs
 - GPU particles animated entirely in the vertex shader

@@ -1,6 +1,7 @@
 import {
-  CapsuleGeometry,
+  AdditiveBlending,
   Color,
+  CylinderGeometry,
   DynamicDrawUsage,
   IcosahedronGeometry,
   InstancedBufferAttribute,
@@ -24,8 +25,13 @@ export interface Shot {
   vel: Vector2;
   damage: number;
   life: number;
+  /** Seconds since fired: the beam grows out of the muzzle. */
+  age: number;
   index: number;
 }
+
+/** Visual length of a laser bolt; at the fire rate the stream reads as one beam. */
+const BOLT_LEN = 58;
 
 /** Squared distance from point (px, py) to segment a-b. */
 export function segDist2(ax: number, ay: number, bx: number, by: number, px: number, py: number) {
@@ -70,18 +76,35 @@ export class Projectiles {
   readonly shots: Pool<Shot>;
   readonly bullets: Pool<Bullet>;
   private shotMesh: InstancedMesh;
+  private glowMesh: InstancedMesh;
   private bulletMesh: InstancedMesh;
   private dummy = new Object3D();
+  /** Laser colours, set from the world's accent. */
+  laserCore = 0xfff3d6;
+  laserGlow = 0xff9a4a;
   private tmpColor = new Color();
 
   constructor(scene: Scene) {
-    const shotGeo = new CapsuleGeometry(0.9, 7, 4, 8);
-    shotGeo.rotateZ(Math.PI / 2);
-    this.shotMesh = new InstancedMesh(shotGeo, new MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), 200);
-    this.shotMesh.instanceColor = new InstancedBufferAttribute(new Float32Array(200 * 3), 3);
-    this.shotMesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.shotMesh.frustumCulled = false;
-    this.shotMesh.count = 0;
+    // Unit-length beam along +x with its head at the origin; scaled per shot.
+    const beam = (r: number, sides: number) => {
+      const g = new CylinderGeometry(r, r * 0.35, 1, sides, 1, true);
+      g.rotateZ(Math.PI / 2);
+      g.translate(-0.5, 0, 0);
+      return g;
+    };
+    const mesh = (geo: CylinderGeometry, mat: MeshBasicMaterial) => {
+      const m = new InstancedMesh(geo, mat, 200);
+      m.instanceColor = new InstancedBufferAttribute(new Float32Array(200 * 3), 3);
+      m.instanceMatrix.setUsage(DynamicDrawUsage);
+      m.frustumCulled = false;
+      m.count = 0;
+      return m;
+    };
+    this.shotMesh = mesh(beam(0.75, 6), new MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+    this.glowMesh = mesh(
+      beam(2.6, 8),
+      new MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true, opacity: 0.32, blending: AdditiveBlending, depthWrite: false }),
+    );
 
     this.bulletMesh = new InstancedMesh(
       new IcosahedronGeometry(1, 1),
@@ -92,7 +115,7 @@ export class Projectiles {
     this.bulletMesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.bulletMesh.frustumCulled = false;
     this.bulletMesh.count = 0;
-    scene.add(this.shotMesh, this.bulletMesh);
+    scene.add(this.glowMesh, this.shotMesh, this.bulletMesh);
 
     this.shots = new Pool(200, (index) => ({
       active: false,
@@ -102,6 +125,7 @@ export class Projectiles {
       vel: new Vector2(),
       damage: 1,
       life: 0,
+      age: 0,
       index,
     }));
     this.bullets = new Pool(400, (index) => ({
@@ -128,6 +152,7 @@ export class Projectiles {
     s.vel.set(vx, vy);
     s.damage = damage;
     s.life = kind === 'torpedo' ? 3 : 1.6;
+    s.age = 0;
     return s;
   }
 
@@ -169,11 +194,16 @@ export class Projectiles {
     for (const s of this.shots.items) {
       if (!s.active) continue;
       s.life -= dt;
+      s.age += dt;
       if (s.kind === 'torpedo') {
         const t = homing(s);
         if (t) {
-          const desired = t.clone().sub(s.pos).setLength(420);
-          s.vel.lerp(desired, 1 - Math.exp(-4 * dt));
+          const sp = s.vel.length();
+          const ang = Math.atan2(t.y - s.pos.y, t.x - s.pos.x);
+          const k = 1 - Math.exp(-4 * dt);
+          s.vel.x += (Math.cos(ang) * 420 - s.vel.x) * k;
+          s.vel.y += (Math.sin(ang) * 420 - s.vel.y) * k;
+          if (sp < 1) s.vel.set(420, 0);
         }
       }
       s.prev.copy(s.pos);
@@ -185,15 +215,21 @@ export class Projectiles {
       d.position.set(s.pos.x, s.pos.y, 0);
       d.rotation.set(0, 0, Math.atan2(s.vel.y, s.vel.x));
       const torp = s.kind === 'torpedo';
-      d.scale.set(torp ? 1.3 : 1, torp ? 1.6 : 1, torp ? 1.6 : 1);
+      // The beam grows out of the muzzle, so it never pokes out behind the craft.
+      const len = torp ? 14 : Math.min(BOLT_LEN, 6 + s.age * s.vel.length());
+      d.scale.set(len, torp ? 2 : 1, torp ? 2 : 1);
       d.updateMatrix();
       this.shotMesh.setMatrixAt(n, d.matrix);
-      this.shotMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xffb347 : 0xfff3d6).multiplyScalar(torp ? 3 : 2.4));
+      this.glowMesh.setMatrixAt(n, d.matrix);
+      this.shotMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xffb347 : this.laserCore).multiplyScalar(torp ? 3 : 2.6));
+      this.glowMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xff8a2a : this.laserGlow));
       n++;
     }
-    this.shotMesh.count = n;
-    this.shotMesh.instanceMatrix.needsUpdate = true;
-    if (this.shotMesh.instanceColor) this.shotMesh.instanceColor.needsUpdate = true;
+    for (const m of [this.shotMesh, this.glowMesh]) {
+      m.count = n;
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
 
     n = 0;
     const t = performance.now() * 0.001;

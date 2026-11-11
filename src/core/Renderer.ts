@@ -13,6 +13,7 @@ import {
 } from 'postprocessing';
 import type { QualityPreset } from './Quality';
 import { StylizeEffect } from '../fx/StylizeEffect';
+import { SanitizeEffect } from '../fx/SanitizeEffect';
 import type { ThemeFx } from '../themes/themes';
 import { damp } from './math';
 
@@ -94,6 +95,8 @@ export class Renderer {
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
     this.passA = new EffectPass(this.camera, this.bloom, this.chromatic, tone);
     this.passB = new EffectPass(this.camera, this.stylize, this.vignette, this.noise);
+    // Keep the HDR buffer finite before bloom reads it (see SanitizeEffect).
+    this.composer.addPass(new EffectPass(this.camera, new SanitizeEffect()));
     this.composer.addPass(this.passA);
     this.composer.addPass(this.passB);
   }

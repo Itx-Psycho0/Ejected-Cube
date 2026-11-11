@@ -25,6 +25,12 @@ export interface Settings {
   hudScale: number;
   control: 'follow' | 'keys';
   voice: number;
+  /** Fire continuously on every device. */
+  autoFire: boolean;
+  /** checkpoint: resume at the level you reached. classic: every death starts over at level 1. */
+  progress: 'checkpoint' | 'classic';
+  /** Gameplay soundtrack: driving and fast, or chill and laid back. */
+  musicStyle: 'fast' | 'chill';
 }
 
 export interface RunRecord {
@@ -58,6 +64,10 @@ export interface SaveData {
   best: { score: number; level: number };
   /** Highest level ever reached; unlocks checkpoints. */
   highestLevel: number;
+  /** Checkpoint mode: the level the last journey reached, where Continue starts. */
+  resumeLevel: number;
+  /** Best level reached in Classic mode. */
+  classicBest: number;
   runs: RunRecord[];
   daily: { date: string; best: number };
   missions: Mission[];
@@ -91,6 +101,9 @@ export const DEFAULT_SETTINGS: Settings = {
   hudScale: 1,
   control: 'follow',
   voice: 0.9,
+  autoFire: true,
+  progress: 'checkpoint',
+  musicStyle: 'fast',
 };
 
 function fresh(): SaveData {
@@ -103,6 +116,8 @@ function fresh(): SaveData {
     stats: { runs: 0, deaths: 0, kills: 0, bosses: 0, victories: 0, shardsTotal: 0, sparks: 0, dashKills: 0, reveals: 0, seconds: 0, flares: 0, powerups: 0 },
     best: { score: 0, level: 0 },
     highestLevel: 1,
+    resumeLevel: 1,
+    classicBest: 0,
     runs: [],
     daily: { date: '', best: 0 },
     missions: starterMissions(),
@@ -145,6 +160,8 @@ export class Save {
         loadout: { ...f.loadout, ...p.loadout },
         missions: p.missions?.length === 3 ? p.missions : f.missions,
       };
+      // Older saves only had boss checkpoints: continue from the furthest level instead.
+      if (p.resumeLevel === undefined) this.data.resumeLevel = Math.max(1, this.data.highestLevel);
       if (!this.data.settings.themePool?.length) this.data.settings.themePool = [...THEME_IDS];
       if ((p.worldsVersion ?? 1) < 3) {
         for (const id of ['orbit', 'autumn', 'ember', 'lagoon', 'nebula'] as ThemeId[]) if (!this.data.settings.themePool.includes(id)) this.data.settings.themePool.push(id);

@@ -89,14 +89,14 @@ export function levelDef(n: number): LevelDef {
   if (n >= 7) enemies.push(['puffer', 1.8]);
   return {
     n,
-    duration: Math.min(70, 34 + n * 2),
-    spawnRate: Math.min(3.2, 0.8 + t * 0.13),
+    duration: Math.min(64, 32 + n * 2),
+    spawnRate: Math.min(3.8, 1.05 + t * 0.15),
     enemies,
     enemyHp: 1 + t * 0.11 + cycle * 0.5,
     enemyDamage: 1 + t * 0.07 + cycle * 0.25,
     drain: 1 + t * 0.09,
     bulletSpeed: Math.min(1.7, 0.95 + t * 0.035),
-    scroll: Math.min(1.6, 1 + t * 0.035),
+    scroll: Math.min(1.7, 1 + t * 0.04),
     eliteChance: n < 4 ? 0 : Math.min(0.35, (n - 3) * 0.04),
     bossSlot: isBoss ? (n / BOSS_EVERY - 1) % 5 : -1,
     bossDifficulty: 0.8 + ((n / BOSS_EVERY - 1) % 5) * 0.1 + cycle * 0.6,

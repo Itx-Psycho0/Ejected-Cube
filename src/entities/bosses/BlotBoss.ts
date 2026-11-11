@@ -51,7 +51,7 @@ export class BlotBoss extends Boss {
     sclera.scale.set(18, 11, 6);
     const iris = new Mesh(new SphereGeometry(6.4, 20, 14), this.irisMat);
     iris.scale.z = 0.5;
-    const pupil = new Mesh(new SphereGeometry(3, 14, 10), new MeshStandardMaterial({ color: 0x000000, roughness: 0.05 }));
+    const pupil = new Mesh(new SphereGeometry(3, 14, 10), new MeshStandardMaterial({ color: 0x000000, roughness: 0.22 }));
     pupil.scale.set(0.55, 1.1, 0.4);
     pupil.position.z = 2.4;
     this.iris.add(iris, pupil);

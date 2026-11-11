@@ -188,7 +188,7 @@ function buildShared() {
     fin,
     debris,
     rust,
-    eyeMat: new MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.05, metalness: 0.3 }),
+    eyeMat: new MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.2, metalness: 0.3 }),
     urchinSpikeMat: new MeshStandardMaterial({ color: 0x2a1030, roughness: 0.45, metalness: 0.1, emissive: 0x3a1050, emissiveIntensity: 0.3 }),
     pufferSpikeMat: new MeshStandardMaterial({ color: 0xe8d9a8, roughness: 0.6 }),
     scales: tex.scalesNormal,

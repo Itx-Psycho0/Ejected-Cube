@@ -21,7 +21,10 @@ const KEY_ACTIONS: Record<string, Action> = {
 export class Input {
   readonly aim = new Vector2(0, 0);
   device: Device = 'pointer';
-  autoFire = false;
+  /** Fire continuously without holding anything (setting, on by default). */
+  autoFire = true;
+  /** Last mouse button bitmask, to catch chorded presses the browser reports as moves. */
+  private buttons = 0;
   private held = new Set<Action>();
   private pressed = new Set<Action>();
   private keys = new Set<string>();
@@ -73,12 +76,29 @@ export class Input {
     }
     this.device = 'pointer';
     this.toNdc(e, this.aim);
+    this.syncButtons(e.buttons);
   };
+
+  /**
+   * Browsers send pointerdown/pointerup only for the first button pressed and
+   * the last one released; a second button pressed or released in between
+   * arrives as a pointermove. Diffing the bitmask handles every case, so fire
+   * never gets stuck on or dropped.
+   */
+  private syncButtons(buttons: number) {
+    const was = this.buttons;
+    this.buttons = buttons;
+    const leftNow = (buttons & 1) !== 0;
+    const rightNow = (buttons & 2) !== 0;
+    if (leftNow && !(was & 1)) this.press('fire');
+    if (!leftNow && was & 1) this.held.delete('fire');
+    if (rightNow && !(was & 2)) this.press('dash');
+    if (!rightNow && was & 2) this.held.delete('dash');
+  }
 
   private onPointerDown = (e: PointerEvent) => {
     if (e.pointerType === 'touch') {
       this.device = 'touch';
-      this.autoFire = true;
       if (this.touchId === null) {
         this.touchId = e.pointerId;
         this.toNdc(e, this.touchStart);
@@ -88,8 +108,7 @@ export class Input {
     }
     this.device = 'pointer';
     this.toNdc(e, this.aim);
-    if (e.button === 0) this.press('fire');
-    if (e.button === 2) this.press('dash');
+    this.syncButtons(e.buttons);
   };
 
   private onPointerUp = (e: PointerEvent) => {
@@ -97,8 +116,7 @@ export class Input {
       if (e.pointerId === this.touchId) this.touchId = null;
       return;
     }
-    if (e.button === 0) this.held.delete('fire');
-    if (e.button === 2) this.held.delete('dash');
+    this.syncButtons(e.buttons);
   };
 
   /** Also used by on-screen touch buttons. */
@@ -111,8 +129,9 @@ export class Input {
   }
 
   isHeld(a: Action) {
-    if (a === 'fire' && this.autoFire && this.device === 'touch') return true;
-    return this.enabled && this.held.has(a);
+    if (!this.enabled) return false;
+    if (a === 'fire' && (this.autoFire || this.device === 'touch')) return true;
+    return this.held.has(a);
   }
 
   /** True once per press. */
@@ -128,6 +147,7 @@ export class Input {
   }
 
   releaseAll() {
+    this.buttons = 0;
     this.held.clear();
     this.pressed.clear();
     this.keys.clear();

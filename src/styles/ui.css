@@ -1450,7 +1450,8 @@ table.records th {
   pointer-events: none;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at center, #120a14, #000);
+  /* The page you just saved stays visible behind the Blot's words. */
+  background: radial-gradient(ellipse at center, rgba(10, 4, 14, 0.45), rgba(0, 0, 0, 0.88));
   animation: villain-in 0.6s ease both;
 }
 #villain svg {
@@ -1682,5 +1683,207 @@ table.records th {
   .center-card.show,
   #boot .mark {
     animation-duration: 0.01s !important;
+  }
+}
+
+/* ============ progress mode switch (home) ============ */
+.mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 10px 0 2px;
+}
+.mode-switch button {
+  font: 600 12px var(--body);
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: var(--border) solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.mode-switch button[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.mode-switch span {
+  font: 500 12px var(--body);
+  color: var(--muted);
+  padding-left: 4px;
+}
+.mode-note {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+@media (max-height: 480px) and (pointer: coarse) {
+  .mode-switch {
+    margin: 4px 0 0;
+  }
+  .mode-switch span {
+    display: none;
+  }
+}
+
+/* ============ cinematic banners ============ */
+.banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 36%;
+  z-index: 28;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  animation: banner-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.banner .bar {
+  position: absolute;
+  inset: -14px 0;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.62) 18%, rgba(0, 0, 0, 0.62) 82%, transparent);
+  transform-origin: center;
+  animation: banner-bar 0.4s ease both;
+}
+.banner .txt {
+  position: relative;
+  text-align: center;
+}
+.banner b {
+  display: block;
+  font: 900 clamp(34px, 7vw, 84px) / 1 var(--display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+}
+.banner span {
+  display: block;
+  margin-top: 8px;
+  font: 600 clamp(12px, 1.6vw, 16px) var(--body);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.8);
+}
+.banner.danger b {
+  color: #ff4a3a;
+  text-shadow:
+    0 0 28px rgba(255, 50, 30, 0.6),
+    0 4px 0 #000;
+}
+.banner.ink b {
+  color: #d8b8ff;
+  text-shadow:
+    0 0 26px rgba(120, 40, 200, 0.7),
+    0 4px 0 #000;
+}
+.banner.win b {
+  color: #ffe08a;
+  text-shadow:
+    0 0 30px rgba(255, 200, 80, 0.7),
+    0 4px 0 rgba(0, 0, 0, 0.6);
+}
+.banner.out {
+  animation: banner-out 0.45s ease forwards;
+}
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: scale(1.6);
+    filter: blur(6px);
+  }
+}
+@keyframes banner-bar {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes banner-out {
+  to {
+    opacity: 0;
+    transform: translateX(-8%);
+  }
+}
+
+/* ============ level slam ============ */
+.slam {
+  position: absolute;
+  left: 6%;
+  top: 22%;
+  z-index: 27;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  color: var(--hud-ink, #fff);
+  text-shadow: var(--hud-shadow, 0 2px 8px rgba(0, 0, 0, 0.5));
+}
+.slam .n {
+  font: 900 clamp(64px, 12vw, 150px) / 0.85 var(--numeric, var(--display));
+  transform: skewX(-8deg);
+  animation: slam-n 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+.slam .n small {
+  display: block;
+  font: 700 clamp(11px, 1.4vw, 15px) var(--body);
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+.slam .w {
+  font: 800 clamp(20px, 3.4vw, 40px) / 1.05 var(--display);
+  padding-bottom: 10px;
+  animation: slam-w 0.5s 0.18s ease both;
+}
+.slam .w em {
+  display: block;
+  font: 700 12px var(--body);
+  font-style: normal;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--danger);
+  margin-top: 6px;
+}
+.slam.out {
+  animation: slam-out 0.55s ease forwards;
+}
+@keyframes slam-n {
+  from {
+    opacity: 0;
+    transform: skewX(-8deg) translateX(-60px) scale(1.8);
+  }
+}
+@keyframes slam-w {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+@keyframes slam-out {
+  to {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+}
+
+/* ============ ink creeping in from the edges ============ */
+.ink-edges {
+  --ink: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent calc(78% - var(--ink) * 40%), rgba(8, 4, 14, 0.78) calc(100% - var(--ink) * 18%));
+  transition: background 0.3s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .banner,
+  .banner .bar,
+  .slam .n,
+  .slam .w {
+    animation-duration: 0.01s;
   }
 }

@@ -1,3 +1,4 @@
+import { SpeedLines } from '../fx/SpeedLines';
 import { Scene, Vector2, Vector3 } from 'three';
 import { Renderer } from '../core/Renderer';
 import { Loop } from '../core/Loop';
@@ -60,13 +61,20 @@ interface Run {
   eyeAt: number;
   tauntDone: boolean;
   grazes: number;
+  /** Ink surge: seconds left (0 = none), whether this level had one, when it hits. */
+  surge: number;
+  surgeDone: boolean;
+  surgeAt: number;
+  surgeKills: number;
+  /** Has this boss's phase-two moment played? */
+  rageShown: boolean;
   worlds: Set<ThemeId>;
   endingShown: boolean;
   tutorial: number; // -1 = not a tutorial, else the current step
   tutorialCount: number;
 }
 
-const BASE_SPEED = 120;
+const BASE_SPEED = 150;
 /** Lines the Blot says after each of its creatures falls. */
 const VILLAIN_LINES = [
   'You took one of mine. I have so many more.',
@@ -74,7 +82,7 @@ const VILLAIN_LINES = [
   'Your light is getting smaller, little cube.',
   'Come, then. Come to the last page.',
 ];
-const FIRE_SPEED = 640;
+const FIRE_SPEED = 1050;
 
 interface TutorialStep {
   title: string;
@@ -112,6 +120,10 @@ export class Game {
   readonly pickups!: Pickups;
   private gates!: Gates;
   private eye!: BlotEye;
+  private speedLines!: SpeedLines;
+  /** Real seconds of slow motion left (boss kills). */
+  private slowMo = 0;
+  private heartbeat = 0;
   private ink: InkCorruption | null = null;
   private rig: CameraRig;
   private flash!: Flash;
@@ -155,7 +167,11 @@ export class Game {
     applyUiTheme(s.uiFollowsWorld ? this.theme : THEMES.paper);
     this.ui.theme = this.theme;
     this.bindUi();
-    window.addEventListener('resize', () => this.renderer.resize());
+    // Resizing clears the canvas. Doing it between frames left a blank flash on
+    // phones (address bar, fullscreen); now it happens right before a render.
+    const onResize = () => (this.resizePending = true);
+    window.addEventListener('resize', onResize);
+    window.visualViewport?.addEventListener('resize', onResize);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && (this.mode === 'play' || this.mode === 'boss')) this.setPaused(true);
       if (audio.ctx) void (document.hidden ? audio.ctx.suspend() : audio.ctx.resume());
@@ -194,6 +210,7 @@ export class Game {
       (this as { pickups: Pickups }).pickups = new Pickups(this.scene);
       this.gates = new Gates(this.scene);
       this.eye = new BlotEye(this.scene);
+      this.speedLines = new SpeedLines(this.scene, this.quality.level === 'low' ? 28 : this.quality.level === 'medium' ? 48 : 70);
       this.makeContexts();
     });
     await step(0.8, 'Inking the outlines', () => {
@@ -249,6 +266,8 @@ export class Game {
   /** Switch everything to a world. `instant` is used behind a page turn. */
   applyTheme(t: ThemeDef, instant: boolean) {
     this.theme = t;
+    if (this.projectiles) this.projectiles.laserGlow = parseInt(t.ui.accent.slice(1), 16);
+    this.speedLines?.setColor(parseInt(t.ui.accent.slice(1), 16));
     this.ui.theme = t;
     this.atmo.setTheme(t, instant);
     this.ground.setTheme(t);
@@ -308,7 +327,10 @@ export class Game {
     ui.events.on('resume', () => this.setPaused(false));
     ui.events.on('restart', () => {
       if (this.mode !== 'dead') this.commitRun(true);
-      this.startRun(this.run?.startLevel ?? 1, this.run?.daily ?? false, false);
+      const daily = this.run?.daily ?? false;
+      // Checkpoints: retry the level you were on. Classic and daily: from the top.
+      const level = daily || this.save.data.settings.progress === 'classic' ? 1 : (this.run?.level ?? 1);
+      this.startRun(level, daily, false);
     });
     ui.events.on('continueRun', () => {
       this.ui.show('none');
@@ -386,6 +408,7 @@ export class Game {
 
   private toTitle() {
     this.mode = 'menu';
+    audio.setMenu(true);
     this.ui.show('title');
     if (!this.save.data.coachDone) {
       this.ui.coachHome(() => {
@@ -413,6 +436,8 @@ export class Game {
     this.save.data.settings = s;
     this.save.write();
     audio.setVolumes(s.master, s.music, s.sfx, s.voice ?? 0.9);
+    this.input.autoFire = s.autoFire !== false;
+    audio.setStyle(s.musicStyle ?? 'fast');
     this.rig.shakeScale = s.shake && !s.reducedMotion ? 1 : 0;
     this.ui.showFps(s.showFps);
     this.ui.setHudScale(s.hudScale);
@@ -503,6 +528,8 @@ export class Game {
 
   private enterMenu(first: boolean) {
     this.mode = 'menu';
+    audio.setMenu(true);
+    audio.setIntensity(0);
     this.paused = false;
     this.modeTime = 0;
     this.input.enabled = true;
@@ -567,6 +594,11 @@ export class Game {
           eyeAt: 0.3 + Math.random() * 0.4,
           tauntDone: false,
           grazes: 0,
+          surge: 0,
+          surgeDone: false,
+          surgeAt: 0.4 + Math.random() * 0.25,
+          surgeKills: 0,
+          rageShown: false,
           worlds: new Set(),
           endingShown: level > STORY_END_LEVEL,
           tutorial: tutorial ? 0 : -1,
@@ -581,7 +613,10 @@ export class Game {
         this.rig.setZoom(1);
         this.fireCd = 0;
         audio.setEngine(next.family);
-        if (!tutorial) this.save.data.stats.runs++;
+        if (!tutorial) {
+          this.save.data.stats.runs++;
+          this.noteProgress(level);
+        }
         this.save.write();
         this.ui.clearOverlays();
         this.ui.fade(0);
@@ -589,6 +624,9 @@ export class Game {
         this.mode = 'intro';
         this.modeTime = 0;
         this.paused = false;
+        audio.setMenu(false);
+        audio.setIntensity(0);
+        audio.cutMusic(false);
         audio.setBossMode(false);
       })
       .then(() => (this.busy = false));
@@ -605,7 +643,13 @@ export class Game {
 
   // ------------------------------------------------------------------ frame
 
+  private resizePending = false;
+
   private frame(dt: number, raw: number) {
+    if (this.resizePending) {
+      this.resizePending = false;
+      this.renderer.resize();
+    }
     this.input.update();
     if (this.input.consume('pause')) {
       if (this.paused && this.ui.current === 'pause') this.setPaused(false);
@@ -626,6 +670,9 @@ export class Game {
     if (this.hitStop > 0) {
       this.hitStop -= raw;
       dt *= 0.05;
+    } else if (this.slowMo > 0) {
+      this.slowMo -= raw;
+      dt *= 0.28;
     }
     this.modeTime += dt;
     switch (this.mode) {
@@ -653,6 +700,7 @@ export class Game {
     this.flash.update(dt);
     this.telegraph.update(dt);
     this.particles.update(dt, this.ground.worldScroll);
+    this.speedLines?.update(dt, this.mode === 'menu' || this.mode === 'hangar' ? 0 : this.scrollSpeed, this.bounds);
     this.rig.update(dt, this.player.pos.x, this.player.pos.y);
     this.styler.sync();
     this.renderer.render(dt);
@@ -703,8 +751,9 @@ export class Game {
       if (this.run.tutorial >= 0) this.tutorialStep(0);
       else {
         const t = this.theme;
-        this.ui.card(t.name, t.line, def.bossSlot >= 0 ? `Level ${def.n} · Boss level` : `Level ${def.n}`);
-        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. Fire is automatic.' : 'Move the mouse to fly. Hold left click or Space to fire.', 5);
+        this.ui.levelSlam(def.n, t.name, def.bossSlot >= 0);
+        audio.slam();
+        if (def.n === 1 && this.save.data.settings.hints) this.ui.hint(this.input.isTouch ? 'Drag to steer. Your laser fires on its own.' : this.input.autoFire ? 'Move the mouse to fly. Your laser fires on its own.' : 'Move the mouse to fly. Hold left click or Space to fire.', 5);
       }
     }
   }
@@ -748,7 +797,7 @@ export class Game {
     this.enemyCtx.darkness = 0;
     this.enemyCtx.difficulty = def.bulletSpeed;
     const progress = clamp(run.levelTime / def.duration, 0, 1);
-    this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.96, diff.spawn);
+    this.enemies.direct(dt, def, progress, this.enemyCtx, !inBoss && !transition && !tut && progress < 0.96, diff.spawn * (run.surge > 0 ? 2.3 : 1));
     this.gates.direct(dt, run.level, this.bounds, !inBoss && !transition && !tut && progress < 0.9);
     this.gates.update(
       dt,
@@ -776,6 +825,25 @@ export class Game {
       }
     }
     this.eye.update(dt, p.pos.x, p.pos.y);
+    // Ink surge: the Blot floods the page for a few seconds. Double score while it lasts.
+    if (!run.surgeDone && run.level >= 4 && def.bossSlot < 0 && !inBoss && !tut && !transition && progress > run.surgeAt) {
+      run.surgeDone = true;
+      if (Math.random() < 0.8) this.startSurge();
+    }
+    if (run.surge > 0) {
+      run.surge -= dt;
+      this.ui.inkEdges(0.45 + Math.sin(run.time * 6) * 0.08);
+      this.speedLines.boost = Math.max(this.speedLines.boost, 0.7);
+      if (run.surge <= 0 || inBoss || transition) this.endSurge(true);
+    }
+    // Low energy: a heartbeat under the music.
+    if (p.alive && !tut && p.energy < p.stats.maxEnergy * 0.2) {
+      this.heartbeat -= dt;
+      if (this.heartbeat <= 0) {
+        this.heartbeat = 0.42 + (p.energy / p.stats.maxEnergy) * 2;
+        audio.heartbeat();
+      }
+    }
     if (!tut) this.pickups.direct(dt, this.bounds, !transition, !inBoss && !transition, p.energy / p.stats.maxEnergy);
 
     this.updateCombat(dt, inBoss ? BASE_SPEED * 0.5 : this.scrollSpeed);
@@ -929,6 +997,17 @@ export class Game {
           }
         }
       }
+      if (this.boss.phase2 && !this.run.rageShown && this.boss.state === 'fight') {
+        // Phase two: the ink boils over.
+        this.run.rageShown = true;
+        this.hitStop = 0.35;
+        this.rig.addTrauma(0.7);
+        this.renderer.aberration = 1;
+        this.flash.trigger(this.boss.pos.x, this.boss.pos.y, 0xff3a3a, 1.2);
+        this.ui.banner('Enraged', 'the ink boils over', 'danger', 1.8);
+        audio.bossRoar();
+        audio.setIntensity(1);
+      }
       if (this.boss.state === 'dead') this.onBossDefeated();
     }
 
@@ -979,12 +1058,48 @@ export class Game {
     this.particles.burst(this.v3.set(x, y, 0), { count: 8, color: 0xffb070, speed: 120, size: 5, life: 0.35 });
     audio.enemyHit();
     if (died) {
+      // The killing blow: a beat of freeze, then slow motion, a white flash and a title.
       this.hitStop = 0.25;
+      this.slowMo = 1.5;
       this.rig.addTrauma(1);
+      this.flash.trigger(b.pos.x, b.pos.y, 0xffffff, 1.5);
+      this.renderer.aberration = 1;
+      this.ui.banner(this.run.boss?.kind === 'blot' ? 'The ink breaks' : 'Page restored', `${this.run.boss?.name ?? 'The boss'} falls`, 'win', 2.4);
       audio.explode(2);
       audio.bossRoar();
+      audio.victoryHit();
       this.projectiles.clearBullets();
       this.telegraph.clear();
+    }
+  }
+
+  private startSurge() {
+    const run = this.run;
+    run.surge = 7;
+    run.surgeKills = 0;
+    this.ui.banner('Ink surge', 'double score · hold the line', 'ink', 2);
+    audio.alarm();
+    audio.whisper();
+    audio.setIntensity(1);
+    this.rig.addTrauma(0.3);
+    this.renderer.aberration = 0.6;
+    if (!this.eye.isOpen) this.eye.open(this.bounds.x * 0.3);
+  }
+
+  private endSurge(survived: boolean) {
+    const run = this.run;
+    if (!run || run.surge <= 0) {
+      this.ui.inkEdges(0);
+      return;
+    }
+    run.surge = 0;
+    this.ui.inkEdges(0);
+    audio.setIntensity(0);
+    if (survived && this.player.alive && this.mode === 'play') {
+      const bonus = 400 * Math.max(1, run.level) + run.surgeKills * 50;
+      run.score += bonus;
+      this.ui.banner('Surge cleared', `+${bonus.toLocaleString()}`, 'win', 1.6);
+      audio.comboMilestone();
     }
   }
 
@@ -1023,8 +1138,9 @@ export class Game {
     const run = this.run;
     run.kills++;
     run.tutorialCount++;
-    const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (Math.max(1, run.level) - 1) * 0.08));
+    const pts = Math.round(ENEMY_SPECS[e.kind].score * (1 + (Math.max(1, run.level) - 1) * 0.08) * (run.surge > 0 ? 2 : 1));
     run.score += pts;
+    if (run.surge > 0) run.surgeKills++;
     this.player.lumen = Math.min(1, this.player.lumen + 0.035 * lumenGain(this.save.data.upgrades));
     if (this.player.dashing) {
       run.dashKills++;
@@ -1193,6 +1309,7 @@ export class Game {
     const wasBlot = run.boss?.kind === 'blot';
     this.removeBoss();
     audio.setBossMood(null);
+    audio.setIntensity(0);
     void audio.speak(wasBlot ? 'blot-defeat' : 'victory');
     this.popupAt(0, 0, '+3 shards');
     if (run.level >= STORY_END_LEVEL && !run.endingShown) {
@@ -1211,6 +1328,16 @@ export class Game {
   }
 
   /** Gate reached: bank progress, turn the page to the next level and world. */
+  /** Remember where the journey is, for Continue (Checkpoints) and the Classic best. */
+  private noteProgress(level: number) {
+    const run = this.run;
+    if (!run || run.daily || run.tutorial >= 0) return;
+    const s = this.save.data;
+    if (s.settings.progress === 'classic') s.classicBest = Math.max(s.classicBest ?? 0, level);
+    else s.resumeLevel = level;
+    this.save.write();
+  }
+
   private levelComplete(villain = -1) {
     const run = this.run;
     if (!run.hurtThisLevel) this.missionAdd('clean');
@@ -1221,6 +1348,7 @@ export class Game {
     run.hurtThisLevel = false;
     this.missionMax('level', run.level);
     if (run.level > this.save.data.highestLevel) this.save.data.highestLevel = run.level;
+    this.noteProgress(run.level);
     this.save.write();
     this.mode = 'transition';
     this.projectiles.clearBullets();
@@ -1229,12 +1357,17 @@ export class Game {
     const next = run.def.bossSlot === 4 ? THEMES.ink : this.pickTheme();
     run.eyeDone = false;
     run.eyeAt = 0.3 + Math.random() * 0.4;
-    const hold =
-      villain >= 0
-        ? () => this.ui.villainLine(VILLAIN_LINES[villain], audio.speak(`blot-${villain + 1}`), 3.2)
-        : undefined;
-    void this.ui
-      .pageTurn(next, `Level ${run.level}`, run.def.bossSlot === 4 ? 'The last page' : run.def.bossSlot >= 0 ? 'Boss level' : next.name, () => {
+    run.surgeDone = false;
+    run.surgeAt = 0.4 + Math.random() * 0.25;
+    run.rageShown = false;
+    this.endSurge(false);
+    // The Blot speaks over the page you just saved, then the page turns.
+    const before = villain >= 0 ? this.ui.villainLine(VILLAIN_LINES[villain], audio.speak(`blot-${villain + 1}`), 3.2) : Promise.resolve();
+    void before
+      .then(() =>
+        this.mode !== 'transition'
+          ? undefined
+          : this.ui.pageTurn(next, `Level ${run.level}`, run.def.bossSlot === 4 ? 'The last page' : run.def.bossSlot >= 0 ? 'Boss level' : next.name, () => {
         this.enemies.clear();
         this.pickups.clear();
         this.applyTheme(next, true);
@@ -1242,13 +1375,15 @@ export class Game {
         audio.setEngine(next.family);
         this.player.addEnergy(15);
         this.ui.setHudVisible(true, this.input.isTouch);
-      }, hold)
+      }))
       .then(() => {
         if (this.mode !== 'transition') return;
         this.mode = 'play';
         this.modeTime = 0;
         audio.zoneEnter();
-        this.ui.card(next.name, next.line, run.def.bossSlot >= 0 ? `Level ${run.level} · Boss level` : `Level ${run.level}`);
+        this.ui.levelSlam(run.level, next.name, run.def.bossSlot >= 0);
+        audio.slam();
+        this.speedLines.boost = 1;
       });
   }
 
@@ -1272,7 +1407,7 @@ export class Game {
     },
     {
       title: 'Fire',
-      text: (t) => (t ? 'Firing is automatic. Line up and destroy 3 targets.' : 'Hold left click or Space to fire. Destroy 3 targets.'),
+      text: (t) => (t || this.input.autoFire ? 'Your laser fires on its own. Line up and destroy 3 targets.' : 'Hold left click or Space to fire. Destroy 3 targets.'),
       setup: (g) => {
         g.run.tutorialCount = 0;
       },
@@ -1341,11 +1476,17 @@ export class Game {
 
   // ------------------------------------------------------------------ endings
 
+  private deathShown = false;
+
   private onDeath() {
     if (this.mode === 'dead') return;
     this.mode = 'dead';
+    this.deathShown = false;
     this.modeTime = 0;
     this.loop.timeScale = 0.35;
+    this.endSurge(false);
+    this.ui.banner('The light flickers', 'the ink closes in', 'ink', 1.2);
+    audio.setIntensity(0);
     audio.death();
     audio.setEngine('off');
     audio.setBossMood(null);
@@ -1357,15 +1498,20 @@ export class Game {
 
   private updateDead(dt: number) {
     this.updateWorld(dt, BASE_SPEED * 0.2);
+    if (!this.deathShown) this.ui.inkEdges(Math.min(1, this.modeTime / 1.1));
     this.player.update(dt, this.input, this.bounds, -999);
     this.updateCombat(dt);
-    if (this.modeTime > 1.1 && this.ui.current !== 'death') {
+    // Once per death: after Retry the page turn is still running in 'dead' mode,
+    // and checking the screen instead of a flag showed (and banked) it twice.
+    if (this.modeTime > 1.1 && !this.deathShown) {
+      this.deathShown = true;
       this.loop.timeScale = 1;
       this.ui.setHudVisible(false);
       this.save.data.stats.deaths++;
       if (this.run.daily) this.unlock('daily');
       const summary = this.commitRun(false);
       this.ui.showDeath(summary);
+      this.ui.inkEdges(0);
     }
   }
 

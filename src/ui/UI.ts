@@ -8,7 +8,7 @@ import { audio } from '../audio/AudioEngine';
 import { dailySeed } from '../core/Random';
 import { THEMES, THEME_IDS, type ThemeDef, type ThemeId } from '../themes/themes';
 import { describe } from '../game/missions';
-import { BOSS_EVERY, DIFFICULTY, levelDef, type Difficulty } from '../game/levels';
+import { DIFFICULTY, levelDef, type Difficulty } from '../game/levels';
 import { ACCENT_COLORS, HULL_COLORS, LIGHTS, PATTERNS, SHAPES, TRAILS, costOf, type Loadout } from '../game/cosmetics';
 import { icon } from './icons';
 
@@ -96,6 +96,11 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
  * DOM overlay: every screen plus the HUD. Styling comes entirely from the
  * current world's CSS tokens, so the whole interface re-skins with the world.
  */
+export const PROGRESS_TEXT = {
+  checkpoint: 'Die and you continue from the level you reached.',
+  classic: 'One journey: every death sends you back to level 1.',
+} as const;
+
 export class UI {
   readonly events = new Emitter<UIEvents>();
   readonly root: HTMLElement;
@@ -218,7 +223,7 @@ export class UI {
           <div class="head"><div class="eyebrow">${esc(this.theme.name)}</div><h2>Paused</h2></div>
           <div class="panel" style="width:min(360px,100%);display:flex;flex-direction:column;gap:8px">
             <button class="btn primary" data-a="resume">Resume ${icon('play')}</button>
-            <button class="btn" data-a="restart">Restart from checkpoint</button>
+            <button class="btn" data-a="restart">${this.save.data.settings.progress === 'classic' ? 'Start over at level 1' : 'Restart this level'}</button>
             <button class="btn" data-a="howto">How to play</button>
             <button class="btn" data-a="settings">Settings</button>
             <button class="btn ghost" data-a="menu">Leave to home</button>
@@ -244,15 +249,19 @@ export class UI {
     }
   }
 
-  private checkpointLevel() {
-    const hi = this.save.data.highestLevel;
-    return Math.max(1, hi - ((hi - 1) % BOSS_EVERY));
+  /** Where Play starts: the level you reached (Checkpoints) or level 1 (Classic). */
+  private startLevel() {
+    const s = this.save.data;
+    return s.settings.progress === 'classic' ? 1 : Math.max(1, s.resumeLevel || 1);
   }
 
   private titleScreen() {
     const s = this.save.data;
     const t = this.theme;
-    const cp = this.checkpointLevel();
+    const cp = this.startLevel();
+    const classic = s.settings.progress === 'classic';
+    const playLabel = classic ? 'Classic journey' : cp > 1 ? 'Continue' : 'Start the journey';
+    const playSub = classic ? `Level 1 · one life${s.classicBest ? ` · best level ${s.classicBest}` : ''}` : `Level ${cp} · a random world`;
     const today = String(dailySeed());
     const dailyBest = s.daily.date === today ? `best ${formatInt(s.daily.best)}` : 'new today';
     const el = h(`<section id="title" class="screen enter">
@@ -260,7 +269,12 @@ export class UI {
         <div class="wordmark"><div class="eyebrow">A journey through the Atlas</div>
           <h1>Ejected<span>Cube</span></h1>
           <p>The Blot is eating the pages. Fly the last cube of light home, one world at a time.</p></div>
-        <button class="btn primary play" data-a="play" data-coach="play">${icon('play')}<span><b>${cp > 1 ? 'Continue' : 'Start the journey'}</b><small>Level ${cp} · a random world</small></span><small>${s.settings.lockTheme === 'random' ? '' : THEMES[s.settings.lockTheme].name}</small></button>
+        <button class="btn primary play" data-a="play" data-coach="play">${icon('play')}<span><b>${playLabel}</b><small>${playSub}</small></span><small>${s.settings.lockTheme === 'random' ? '' : THEMES[s.settings.lockTheme].name}</small></button>
+        <div class="mode-switch" role="radiogroup" aria-label="Progress mode">
+          <button data-mode="checkpoint" role="radio" aria-checked="${!classic}">Checkpoints</button>
+          <button data-mode="classic" role="radio" aria-checked="${classic}">Classic</button>
+          <span>${PROGRESS_TEXT[s.settings.progress]}</span>
+        </div>
         <div class="tiles">
           <button class="btn tile" data-a="journey" data-coach="journey">${icon('journey')}Journey</button>
           <button class="btn tile" data-a="hangar" data-coach="hangar">${icon('hangar')}Hangar</button>
@@ -294,6 +308,12 @@ export class UI {
     el.querySelectorAll<SVGElement>('.reward .icon').forEach((i) => (i.style.cssText = 'width:14px;height:14px;vertical-align:-2px'));
     el.querySelectorAll<SVGElement>('.home-foot .icon').forEach((i) => (i.style.cssText = 'width:16px;height:16px;vertical-align:-3px'));
     el.addEventListener('click', (e) => {
+      const mode = (e.target as HTMLElement).closest<HTMLElement>('[data-mode]')?.dataset.mode as Settings['progress'] | undefined;
+      if (mode && mode !== s.settings.progress) {
+        this.events.emit('settings', { ...s.settings, progress: mode, themePool: [...s.settings.themePool] });
+        this.refresh();
+        return;
+      }
       const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
       if (a === 'play') this.events.emit('dive', { daily: false, level: cp });
       else if (a === 'daily') this.events.emit('dive', { daily: true, level: 1 });
@@ -308,19 +328,21 @@ export class UI {
   private journeyScreen() {
     const s = this.save.data;
     const hi = s.highestLevel;
+    const classic = s.settings.progress === 'classic';
     const max = Math.max(24, Math.ceil((hi + 4) / 6) * 6);
     const nodes = Array.from({ length: max }, (_, i) => {
       const n = i + 1;
       const d = levelDef(n);
-      const cls = ['node', n <= hi ? 'reached' : '', d.bossSlot >= 0 ? 'boss' : '', d.checkpoint ? 'checkpoint' : ''].join(' ');
+      const open = classic ? n === 1 : n <= hi;
+      const cls = ['node', n <= hi ? 'reached' : '', d.bossSlot >= 0 ? 'boss' : '', open ? 'checkpoint' : ''].join(' ');
       const title = d.bossSlot >= 0 ? `Level ${n}: boss` : `Level ${n}`;
-      return `<button class="${cls}" data-n="${n}" title="${title}" ${d.checkpoint && n <= hi ? '' : 'disabled'}>${n}</button>`;
+      return `<button class="${cls}" data-n="${n}" title="${title}" ${open ? '' : 'disabled'}>${n}</button>`;
     }).join('');
     const el = h(`<section id="journey" class="screen veil enter">
       <div class="head"><div class="eyebrow">The journey</div><h2>Fifteen pages to the Engine</h2>
-        <p>Every third level, the Blot takes shape as a boss. Start from any checkpoint you have reached. Each level opens on a random world.</p></div>
+        <p>Every third level, the Blot takes shape as a boss. ${classic ? 'Classic mode: every journey starts at level 1. Switch to Checkpoints on the home screen to start from any level you have reached.' : 'Start from any level you have reached.'} Each level opens on a random world.</p></div>
       <div class="panel" style="width:min(860px,100%)"><div class="path">${nodes}</div></div>
-      <div class="legend"><span>Filled: checkpoint you can start from</span><span>Dashed ring: boss</span><span>Highest level: <b>${hi}</b></span></div>
+      <div class="legend"><span>Filled: a level you can start from</span><span>Dashed ring: boss</span><span>Highest level: <b>${hi}</b></span></div>
       <button class="btn" data-a="back">Back</button></section>`);
     el.addEventListener('click', (e) => {
       const n = (e.target as HTMLElement).closest<HTMLElement>('[data-n]');
@@ -410,16 +432,18 @@ export class UI {
       <div class="grid2">
         <div class="panel"><div class="keys">
           <kbd>Mouse</kbd><span>Your craft glides to the pointer</span>
-          <kbd>Left click / Space</kbd><span>Hold to fire</span>
+          <kbd>Laser</kbd><span>Fires on its own (Settings → Gameplay → Auto-fire). With auto-fire off, hold left click or Space</span>
           <kbd>Shift / Right click</kbd><span>Dodge: a fast roll up or down, toward your pointer. Nothing can hit you during it</span>
           <kbd>Q</kbd><span>Flare, when its ring is full: clears the screen</span>
           <kbd>Esc / P</kbd><span>Pause</span>
-          <kbd>Touch</kbd><span>Drag to steer; fire is automatic</span>
+          <kbd>Touch</kbd><span>Drag anywhere to steer; DODGE and FLARE buttons on the right. Play in landscape</span>
         </div></div>
         <div class="panel" style="display:flex;flex-direction:column;gap:12px">
           <div class="tip"><i class="dot" style="background:var(--accent)"></i><span><b>One bar: Energy.</b> Flying burns it slowly and hits take a chunk. Pickups give it back.</span></div>
           <div class="tip"><i class="dot" style="background:var(--accent2)"></i><span><b>Chain pickups</b> for a combo. Combos fill the flare ring faster.</span></div>
           <div class="tip"><i class="dot" style="background:var(--danger)"></i><span><b>Bosses</b> hold the screen still. Red lanes show where the next attack lands.</span></div>
+          <div class="tip"><i class="dot" style="background:var(--accent)"></i><span><b>Two ways to play.</b> <b>Checkpoints</b>: die and you continue from the level you reached. <b>Classic</b>: one journey, and every death sends you back to level 1. Switch on the home screen or in Settings.</span></div>
+          <div class="tip"><i class="dot" style="background:var(--accent2)"></i><span><b>Graze and gates.</b> Skim past bullets for bonus score, and thread the gaps in the columns to grow your combo.</span></div>
           <div class="tip"><i class="dot" style="background:var(--ink)"></i><span><b>Your craft changes with the world:</b> a capsule underwater, a fighter in the sky, a starship in space.</span></div>
         </div>
       </div>
@@ -442,6 +466,14 @@ export class UI {
         <label class="field" for="s-music">Music <input id="s-music" type="range" min="0" max="1" step="0.05" value="${st.music}"></label>
         <label class="field" for="s-sfx">Effects <input id="s-sfx" type="range" min="0" max="1" step="0.05" value="${st.sfx}"></label>
         <label class="field" for="s-voice">Voice <input id="s-voice" type="range" min="0" max="1" step="0.05" value="${st.voice}"></label>
+        <div class="field"><span>Gameplay music<small>${st.musicStyle === 'chill' ? 'Laid-back beats, every world in its own key.' : 'Driving tracks at 120 to 150 BPM, one per world.'}</small></span><span class="chips">${(
+          [
+            ['fast', 'Fast'],
+            ['chill', 'Chill'],
+          ] as const
+        )
+          .map(([v, l]) => `<button class="chip-btn" data-mstyle="${v}" aria-pressed="${st.musicStyle === v}">${l}</button>`)
+          .join('')}</span></div>
         <label class="field" for="s-quality">Graphics quality <select id="s-quality">${(['auto', 'high', 'medium', 'low'] as const)
           .map((q) => `<option value="${q}" ${st.quality === q ? 'selected' : ''}>${q[0].toUpperCase() + q.slice(1)}</option>`)
           .join('')}</select></label>
@@ -454,6 +486,10 @@ export class UI {
         <div class="field"><span>Difficulty<small>${DIFFICULTY[st.difficulty].desc}</small></span><span class="chips">${(['relaxed', 'normal', 'hard'] as Difficulty[])
           .map((d) => `<button class="chip-btn" data-diff="${d}" aria-pressed="${st.difficulty === d}">${DIFFICULTY[d].label}</button>`)
           .join('')}</span></div>
+        <div class="field"><span>Progress<small>${PROGRESS_TEXT[st.progress]}</small></span><span class="chips">${(['checkpoint', 'classic'] as const)
+          .map((v) => `<button class="chip-btn" data-prog="${v}" aria-pressed="${st.progress === v}">${v === 'checkpoint' ? 'Checkpoints' : 'Classic'}</button>`)
+          .join('')}</span></div>
+        <div class="field"><span>Auto-fire<small>Your laser fires on its own. Turn off to fire with left click or Space.</small></span><button class="toggle" data-k="autoFire" role="switch" aria-checked="${st.autoFire}" aria-label="Auto-fire"></button></div>
         <div class="field">Gameplay hints <button class="toggle" data-k="hints" role="switch" aria-checked="${st.hints}" aria-label="Gameplay hints"></button></div>
         <div class="field">Replay the tutorial <button class="btn" data-a="tutorial" style="padding:7px 12px">Play</button></div>
         <div class="field">Replay the story <button class="btn" data-a="story" style="padding:7px 12px">Watch</button></div>
@@ -506,10 +542,22 @@ export class UI {
       }
       const k = t.closest<HTMLElement>('[data-k]');
       if (k) {
-        const key = k.dataset.k as 'shake' | 'reducedMotion' | 'showFps' | 'hints' | 'uiFollowsWorld';
+        const key = k.dataset.k as 'shake' | 'reducedMotion' | 'showFps' | 'hints' | 'uiFollowsWorld' | 'autoFire';
         st[key] = !st[key];
         k.setAttribute('aria-checked', String(st[key]));
         emit();
+      }
+      const prog = t.closest<HTMLElement>('[data-prog]')?.dataset.prog;
+      if (prog) {
+        st.progress = prog as Settings['progress'];
+        emit();
+        this.refresh();
+      }
+      const ms = t.closest<HTMLElement>('[data-mstyle]')?.dataset.mstyle;
+      if (ms) {
+        st.musicStyle = ms as Settings['musicStyle'];
+        emit();
+        this.refresh();
       }
       const d = t.closest<HTMLElement>('[data-diff]')?.dataset.diff;
       if (d) {
@@ -601,11 +649,11 @@ export class UI {
     this.show('none');
     const [title, flavour] = DEATH_TEXT[r.cause ?? 'hull'];
     const el = h(`<section id="death" class="screen veil enter">
-      <div class="head"><div class="eyebrow">Level ${r.level} · ${esc(r.world)}</div><h2>${title}</h2><p>${flavour}</p>
+      <div class="head"><div class="eyebrow">Level ${r.level} · ${esc(r.world)}</div><h2>${title}</h2><p>${flavour}</p>${r.daily ? '' : `<p class="mode-note">${this.save.data.settings.progress === 'classic' ? 'Classic mode: the journey starts over.' : `Checkpoints: you keep level ${r.level}.`}</p>`}
       ${r.newBest ? '<span class="badge">New best score</span>' : ''}</div>
       ${this.summaryGrid(r)}
       <div class="row">
-        <button class="btn primary" data-a="restart">${r.daily ? 'Retry the daily' : 'Try again'} ${icon('play')}</button>
+        <button class="btn primary" data-a="restart">${r.daily ? 'Retry the daily' : this.save.data.settings.progress === 'classic' ? 'Start over at level 1' : `Retry level ${r.level}`} ${icon('play')}</button>
         <button class="btn" data-a="hangar">Hangar <small>${this.save.data.shards} shards</small></button>
         <button class="btn" data-a="menu">Home</button>
       </div></section>`);
@@ -740,9 +788,9 @@ export class UI {
   /** The villain speaks between pages: ink splashes in from the edges. */
   villainLine(text: string, until: Promise<unknown>, minSeconds = 3) {
     const splats = Array.from({ length: 7 }, (_, i) => {
-      const x = [0, 100, 0, 100, 50, 15, 85][i];
+      const x = [0, 100, 0, 100, 50, 2, 98][i];
       const y = [0, 0, 100, 100, 0, 55, 45][i];
-      const r = 18 + (i % 3) * 8;
+      const r = 14 + (i % 3) * 6;
       return `<circle cx="${x}" cy="${y}" r="${r}" fill="#050508"><animate attributeName="r" from="0" to="${r}" dur="0.7s" begin="${i * 0.06}s" fill="freeze"/></circle>`;
     }).join('');
     const el = h(`<div id="villain"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${splats}</svg>
@@ -921,6 +969,39 @@ export class UI {
     this.set('bossname', name);
     this.set('bosstitle', title);
     this.set('bosshp', `${(frac * 100).toFixed(1)}%`, 'width');
+  }
+
+  /**
+   * Big cinematic banner across the middle of the screen (ENRAGED, INK SURGE,
+   * PAGE RESTORED). `tone` picks the colour treatment.
+   */
+  banner(title: string, sub: string, tone: 'danger' | 'ink' | 'win' = 'danger', seconds = 2.2) {
+    this.root.querySelector('.banner')?.remove();
+    const el = h(`<div class="banner ${tone}"><div class="bar"></div><div class="txt"><b>${esc(title)}</b><span>${esc(sub)}</span></div></div>`);
+    this.root.appendChild(el);
+    setTimeout(() => el.classList.add('out'), seconds * 1000);
+    setTimeout(() => el.remove(), seconds * 1000 + 500);
+  }
+
+  /** Level number slams in, then the world's name. */
+  levelSlam(level: number, name: string, boss: boolean) {
+    this.root.querySelector('.slam')?.remove();
+    const el = h(`<div class="slam${boss ? ' boss' : ''}"><div class="n"><small>Level</small>${level}</div><div class="w">${esc(name)}${boss ? '<em>Boss level</em>' : ''}</div></div>`);
+    this.root.appendChild(el);
+    setTimeout(() => el.classList.add('out'), 1900);
+    setTimeout(() => el.remove(), 2500);
+  }
+
+  /** Ink creeping in from the screen edges (ink surges, the end of a run). */
+  inkEdges(amount: number) {
+    let el = this.root.querySelector<HTMLElement>('.ink-edges');
+    if (!el) {
+      if (amount <= 0) return;
+      el = h('<div class="ink-edges"></div>');
+      this.root.appendChild(el);
+    }
+    el.style.setProperty('--ink', String(Math.max(0, Math.min(1, amount))));
+    if (amount <= 0) el.remove();
   }
 
   card(title: string, sub: string, eyebrow: string) {

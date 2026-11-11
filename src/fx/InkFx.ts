@@ -6,10 +6,10 @@ import type { HitCircle } from '../entities/bosses';
 /** Glossy black ink: the Blot's material, shared by every corrupted thing. */
 export const INK = new MeshPhysicalMaterial({
   color: 0x07070b,
-  roughness: 0.14,
+  roughness: 0.24,
   metalness: 0.1,
   clearcoat: 1,
-  clearcoatRoughness: 0.08,
+  clearcoatRoughness: 0.2,
   emissive: 0x2a0a3a,
   emissiveIntensity: 0.35,
 });
@@ -87,7 +87,7 @@ export class BlotEye {
     this.iris = new Group();
     const iris = new Mesh(new SphereGeometry(30, 24, 16), new MeshStandardMaterial({ color: 0xc8352c, emissive: 0xc8352c, emissiveIntensity: 1.2, roughness: 0.2 }));
     iris.scale.z = 0.4;
-    const pupil = new Mesh(new SphereGeometry(15, 20, 12), new MeshStandardMaterial({ color: 0x000000, roughness: 0.05 }));
+    const pupil = new Mesh(new SphereGeometry(15, 20, 12), new MeshStandardMaterial({ color: 0x000000, roughness: 0.22 }));
     pupil.position.z = 8;
     pupil.scale.set(0.6, 1, 0.4);
     this.iris.add(iris, pupil);
@@ -124,6 +124,10 @@ export class BlotEye {
       this.active = false;
       this.root.visible = false;
     }
+  }
+
+  get isOpen() {
+    return this.active;
   }
 
   hide() {

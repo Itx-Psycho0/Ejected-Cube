@@ -146,9 +146,9 @@ export class PodModel {
       new MeshPhysicalMaterial({
         color: 0x9fd8ff,
         metalness: 0,
-        roughness: 0.04,
+        roughness: 0.16,
         clearcoat: 1,
-        clearcoatRoughness: 0.05,
+        clearcoatRoughness: 0.14,
         transparent: true,
         opacity: 0.28,
         depthWrite: false,
@@ -166,7 +166,7 @@ export class PodModel {
     helmet.position.set(0.2, 1, 0);
     const visor = new Mesh(
       new SphereGeometry(1.25, 16, 10, -Math.PI / 2.4, Math.PI / 1.2, Math.PI / 3, Math.PI / 3),
-      new MeshStandardMaterial({ color: 0x111111, metalness: 1, roughness: 0.1, emissive: 0xffa040, emissiveIntensity: 0.25 }),
+      new MeshStandardMaterial({ color: 0x111111, metalness: 1, roughness: 0.2, emissive: 0xffa040, emissiveIntensity: 0.25 }),
     );
     visor.position.set(0.45, 1, 0);
     pilot.add(suit, helmet, visor);
@@ -340,7 +340,7 @@ export class PodModel {
     this.body.add(sub);
     this.variants.water = { group: sub, ports: this.exhaustPorts, muzzle: this.muzzle };
 
-    const glassMat = new MeshPhysicalMaterial({ color: 0x9fd8ff, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.45, depthWrite: false });
+    const glassMat = new MeshPhysicalMaterial({ color: 0x9fd8ff, roughness: 0.16, clearcoat: 1, transparent: true, opacity: 0.45, depthWrite: false });
     const port = (g: Group, x: number, y: number, z: number) => {
       const o = new Object3D();
       o.position.set(x, y, z);

@@ -16,6 +16,7 @@ import '@fontsource/shippori-mincho/latin-500.css';
 import '@fontsource/shippori-mincho/latin-800.css';
 import './styles/base.css';
 import { Game } from './game/Game';
+import { audio } from './audio/AudioEngine';
 
 function webglAvailable() {
   try {
@@ -33,7 +34,7 @@ if (!webglAvailable()) {
 } else {
   const game = new Game(document.getElementById('scene') as HTMLCanvasElement);
   void game.boot();
-  if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) (window as unknown as { game: Game }).game = game;
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) Object.assign(window, { game, audio });
 }
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {

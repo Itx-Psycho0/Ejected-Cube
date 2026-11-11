@@ -8,7 +8,7 @@
  *   ambience ────────────────────────┘
  */
 
-export type DrumStyle = 'four' | 'break' | 'half' | 'march' | 'none';
+export type DrumStyle = 'four' | 'break' | 'half' | 'march' | 'lofi' | 'none';
 
 export interface MusicMood {
   /** Root note frequency in Hz (bass register). */
@@ -25,7 +25,20 @@ export interface MusicMood {
   bass?: OscillatorType;
   /** Chord roots as scale degrees, one per bar. */
   chords?: number[];
+  /** 0..0.5: delays every other sixteenth (chill groove). */
+  swing?: number;
+  /** Pads add the seventh. */
+  sevenths?: boolean;
 }
+
+interface HookNote {
+  step: number;
+  deg: number;
+  len: number;
+}
+
+/** Music bus level relative to the Music slider. */
+const MUSIC_LEVEL = 0.95;
 
 const semis = (root: number, s: number) => root * Math.pow(2, s / 12);
 
@@ -52,6 +65,13 @@ export class AudioEngine {
   private baseMood: MusicMood = this.mood;
   private bossMood: MusicMood | null = null;
   private musicCut = false;
+  private style: 'fast' | 'chill' = 'fast';
+  private menuMode = false;
+  /** 0..1, raised by the game in tense moments (ink surges): extra layers. */
+  private intensity = 0;
+  /** Bar the current track started on, for its arrangement. */
+  private barBase = 0;
+  private hooks = new Map<string, HookNote[]>();
   private volumes = { master: 0.8, music: 0.6, sfx: 0.8, voice: 0.9 };
   private lastPlay = new Map<string, number>();
   private voiceBuffers = new Map<string, Promise<AudioBuffer | null>>();
@@ -73,8 +93,12 @@ export class AudioEngine {
     this.ctx = ctx;
 
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 3.5;
+    // Glue and safety limiter: louder overall, but peaks never clip.
+    comp.threshold.value = -12;
+    comp.knee.value = 6;
+    comp.ratio.value = 8;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.2;
     comp.connect(ctx.destination);
     this.master = ctx.createGain();
     this.master.connect(comp);
@@ -124,7 +148,7 @@ export class AudioEngine {
     this.ambFilter.type = 'lowpass';
     this.ambFilter.frequency.value = 600;
     this.ambience = ctx.createGain();
-    this.ambience.gain.value = 0.35;
+    this.ambience.gain.value = 0.14;
     this.ambFilter.connect(this.ambience).connect(this.duck);
 
     this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
@@ -145,8 +169,8 @@ export class AudioEngine {
   private applyVolumes() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.master.gain.setTargetAtTime(this.muted ? 0 : this.volumes.master, t, 0.05);
-    this.music.gain.setTargetAtTime(this.musicCut ? 0 : this.volumes.music * 0.55, t, this.musicCut ? 0.08 : 0.3);
+    this.master.gain.setTargetAtTime(this.muted ? 0 : this.volumes.master * 1.5, t, 0.05);
+    this.music.gain.setTargetAtTime(this.musicCut ? 0 : this.volumes.music * MUSIC_LEVEL, t, this.musicCut ? 0.08 : 0.3);
     this.sfx.gain.setTargetAtTime(this.volumes.sfx * 0.9, t, 0.05);
     this.voice.gain.setTargetAtTime(this.volumes.voice * 1.1, t, 0.05);
   }
@@ -159,20 +183,18 @@ export class AudioEngine {
   setPaused(p: boolean) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.music.gain.setTargetAtTime(p ? this.volumes.music * 0.12 : this.volumes.music * 0.55, t, 0.2);
+    this.music.gain.setTargetAtTime(p ? this.volumes.music * 0.2 : this.musicCut ? 0 : this.volumes.music * MUSIC_LEVEL, t, 0.2);
     this.musicFilter.frequency.setTargetAtTime(p ? 400 : this.mood.cutoff, t, 0.2);
   }
 
   /** The world's track. Kept underneath while a boss track plays. */
   setMood(m: MusicMood) {
     this.baseMood = m;
-    if (!this.bossMood) this.switchTo(m);
   }
 
   /** Boss track on top of the world track; `null` returns to the world. */
   setBossMood(m: MusicMood | null) {
     this.bossMood = m;
-    this.switchTo(m ?? this.baseMood);
   }
 
   /** Back-compat: boss mode with a generic boss track. */
@@ -181,13 +203,26 @@ export class AudioEngine {
   }
 
   private switchTo(m: MusicMood) {
-    const tempoChanged = m.bpm !== this.mood.bpm;
+    const changed = m.bpm !== this.mood.bpm || m.root !== this.mood.root || m.drums !== this.mood.drums;
     this.mood = m;
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    this.musicFilter.frequency.setTargetAtTime(m.cutoff, t, 0.8);
-    // Restart on a bar line so a new track starts with its downbeat.
-    if (tempoChanged) this.step = Math.ceil(this.step / 16) * 16;
+    if (!this.ctx || !changed) return;
+    // Restart on a bar line so a new track starts with its downbeat and its intro.
+    this.step = Math.ceil(this.step / 16) * 16;
+    this.barBase = this.step / 16;
+  }
+
+  /** Gameplay soundtrack style (Settings). */
+  setStyle(s: 'fast' | 'chill') {
+    this.style = s;
+  }
+
+  /** Menus always get the chill version of the world's track. */
+  setMenu(on: boolean) {
+    this.menuMode = on;
+  }
+
+  setIntensity(v: number) {
+    this.intensity = v;
   }
 
   /** Silence the music (boss warning), and bring it back. */
@@ -397,7 +432,7 @@ export class AudioEngine {
     this.engineBase = kind === 'sky' ? 82 : kind === 'space' ? 120 : 55;
     this.engineTrem.frequency.setTargetAtTime(kind === 'sky' ? 26 : 5, t, 0.2);
     this.engineFilter.frequency.setTargetAtTime(kind === 'sky' ? 420 : kind === 'space' ? 900 : 260, t, 0.3);
-    this.engineGain.gain.setTargetAtTime(kind === 'sky' ? 0.025 : 0.035, t, 0.6);
+    this.engineGain.gain.setTargetAtTime(kind === 'sky' ? 0.012 : 0.018, t, 0.6);
   }
 
   setThrust(v: number) {
@@ -407,17 +442,20 @@ export class AudioEngine {
 
   // ---------- music ----------
 
-  private kick(t: number, vol = 0.5) {
-    this.tone('sine', 150, 42, 0.26, vol, { dest: this.music, when: t, attack: 0.002 });
-    this.noise(0.02, 0.12, 4000, 2000, 1, 'highpass', 0, this.music, t);
+  private kick(t: number, vol = 0.7) {
+    this.tone('sine', 160, 44, 0.28, vol, { dest: this.music, when: t, attack: 0.002 });
+    this.noise(0.02, 0.14, 4000, 2000, 1, 'highpass', 0, this.music, t);
     // Sidechain-style pump: the rest of the mix dips under each kick.
     const g = this.pump.gain;
     g.setValueAtTime(0.62, t);
     g.linearRampToValueAtTime(1, t + 0.17);
   }
-  private snare(t: number, vol = 0.22) {
-    this.noise(0.18, vol, 5200, 1800, 0.8, 'bandpass', 0.15, this.music, t);
+  private snare(t: number, vol = 0.3, soft = false) {
+    this.noise(soft ? 0.24 : 0.18, vol, soft ? 3200 : 5200, 1800, 0.8, 'bandpass', soft ? 0.4 : 0.18, this.music, t);
     this.tone('triangle', 190, 140, 0.1, vol * 0.6, { dest: this.music, when: t });
+  }
+  private crash(t: number) {
+    this.noise(1.6, 0.12, 9000, 3000, 0.6, 'highpass', 0.4, this.music, t);
   }
   private hat(t: number, vol = 0.06, open = false) {
     this.noise(open ? 0.16 : 0.04, vol, 9000, 7000, 0.7, 'highpass', 0, this.music, t);
@@ -426,75 +464,178 @@ export class AudioEngine {
     this.tone('sine', f, f * 0.55, 0.32, vol, { dest: this.music, when: t, attack: 0.003 });
   }
 
+  /** A two-bar hook per mood, generated once from its key so each world has its own tune. */
+  private hookFor(m: MusicMood) {
+    const key = `${m.root}:${m.bpm}:${m.scale.join(',')}`;
+    let hk = this.hooks.get(key);
+    if (hk) return hk;
+    let seed = Math.floor(m.root * 1000 + m.bpm * 7 + m.scale.length * 131) >>> 0;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    hk = [];
+    let deg = [0, 2, 4][Math.floor(rnd() * 3)];
+    for (let st = 0; st < 32; ) {
+      // Mostly eighths, some sixteenths and dotted notes; a breath at the end of each bar.
+      const len = st % 16 >= 12 && rnd() < 0.5 ? 4 : rnd() < 0.2 ? 1 : rnd() < 0.75 ? 2 : 3;
+      if (st % 16 === 14 && rnd() < 0.6) {
+        st += len;
+        continue;
+      }
+      if (rnd() < 0.86) hk.push({ step: st, deg, len });
+      // Step-wise motion with the odd leap, pulled back toward the chord.
+      const r = rnd();
+      deg += r < 0.35 ? 1 : r < 0.7 ? -1 : r < 0.85 ? 2 : -2;
+      if (deg > 7) deg -= 3;
+      if (deg < -2) deg += 3;
+      st += len;
+    }
+    this.hooks.set(key, hk);
+    return hk;
+  }
+
+  /** The laid-back version of any world's track. */
+  private chillOf(m: MusicMood): MusicMood {
+    return {
+      ...m,
+      bpm: Math.round(Math.min(92, Math.max(78, m.bpm * 0.64))),
+      density: m.density * 0.7,
+      cutoff: Math.min(m.cutoff, 2400),
+      drums: 'lofi',
+      lead: 'triangle',
+      bass: 'sine',
+      swing: 0.2,
+      sevenths: true,
+    };
+  }
+
+  private current(): MusicMood {
+    if (this.bossMood) return this.bossMood;
+    return this.menuMode || this.style === 'chill' ? this.chillOf(this.baseMood) : this.baseMood;
+  }
+
   /**
-   * 16th-note sequencer. Chord per bar; bass on eighths with octave jumps;
-   * a deterministic arpeggio (density decides how many steps play); drums
-   * from the mood's style.
+   * 16th-note sequencer with a 16-bar arrangement:
+   *   0-1 intro (filter opens) · 2-9 groove + hook · 10-11 breakdown + riser · 12-15 drop
+   * Chord per bar; bass on eighths with octave jumps; arpeggio; a melody hook;
+   * drums from the mood's style. Boss tracks skip the intro.
    */
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
+    const want = this.current();
+    if (want.bpm !== this.mood.bpm || want.drums !== this.mood.drums || want.root !== this.mood.root || want.lead !== this.mood.lead) this.switchTo(want);
+    else this.mood = want;
     const m = this.mood;
     const s16 = 60 / m.bpm / 4;
     const L = m.scale.length;
     const note = (deg: number) => m.scale[((deg % L) + L) % L] + 12 * Math.floor(deg / L);
     const chords = m.chords ?? [0, 5, 3, 4];
+    const hook = this.hookFor(m);
+    const boss = !!this.bossMood;
     while (this.nextStep < ctx.currentTime + 0.2) {
-      const t = this.nextStep;
       const s = this.step % 16;
       const bar = Math.floor(this.step / 16);
+      const arr = (bar - this.barBase + (boss ? 2 : 0)) % 16;
+      const swing = s % 2 === 1 ? s16 * (m.swing ?? 0) : 0;
+      const t = this.nextStep + swing;
       const deg = chords[bar % chords.length];
       const drums = m.drums ?? 'none';
+      const intro = arr < 2;
+      const breakdown = arr === 10 || arr === 11;
+      const drop = arr >= 12 || (boss && arr >= 2);
+      const hot = this.intensity > 0.7;
 
       if (s === 0) {
-        for (const k of [0, 2, 4]) {
+        // Filter: closed in the intro and breakdown, wide open on the drop.
+        const cut = intro ? m.cutoff * (arr === 0 ? 0.3 : 0.6) : breakdown ? m.cutoff * 0.5 : m.cutoff * (drop || hot ? 1.25 : 1);
+        this.musicFilter.frequency.setTargetAtTime(Math.min(9000, cut), t, s16 * 4);
+        // Pads: a held chord each bar (sevenths in chill).
+        const tones = m.sevenths ? [0, 2, 4, 6] : [0, 2, 4];
+        for (const k of tones) {
           const f = semis(m.root * 4, note(deg + k));
-          this.tone('sawtooth', f, f, s16 * 15, 0.012, { attack: s16 * 3, dest: this.music, when: t, detune: (k - 2) * 6, cutoff: 1400 });
-          this.tone('sine', f, f, s16 * 15, 0.02, { attack: s16 * 2, dest: this.music, when: t });
+          this.tone('sawtooth', f, f, s16 * 15.5, breakdown ? 0.03 : 0.022, { attack: s16 * 3, dest: this.music, when: t, detune: (k - 2) * 7, cutoff: 1600 });
+          this.tone('sine', f, f, s16 * 15.5, 0.04, { attack: s16 * 2, dest: this.music, when: t });
+        }
+        if (arr === 12 || (boss && arr === 2)) this.crash(t);
+      }
+
+      // Bass: eighths with an octave jump (fast) or long notes (chill and breakdown).
+      if (!breakdown) {
+        if (drums !== 'none' && drums !== 'lofi' && s % 2 === 0 && !(intro && arr === 0 && s >= 8)) {
+          const oct = s % 4 === 2 ? 12 : 0;
+          const bf = semis(m.root, note(deg) + oct);
+          this.tone(m.bass ?? 'sawtooth', bf, bf, s16 * 1.7, 0.15, { dest: this.music, when: t, cutoff: 900 });
+          if (oct === 0) this.tone('sine', bf, bf, s16 * 1.8, 0.14, { dest: this.music, when: t });
+        } else if ((drums === 'lofi' || drums === 'none') && (s === 0 || s === 10)) {
+          const bf = semis(m.root, note(deg) + (s === 10 ? 7 : 0));
+          this.tone('sine', bf, bf, s16 * (s === 0 ? 9 : 5), 0.2, { dest: this.music, when: t, attack: 0.02 });
         }
       }
-      // Bass: eighths, root with an octave jump on the off-beat.
-      if (s % 2 === 0 && drums !== 'none') {
-        const oct = s % 4 === 2 ? 12 : 0;
-        const bf = semis(m.root, note(deg) + oct);
-        this.tone(m.bass ?? 'sawtooth', bf, bf, s16 * 1.8, 0.075, { dest: this.music, when: t, cutoff: 700 });
-      } else if (drums === 'none' && s === 0) {
-        const bf = semis(m.root, note(deg));
-        this.tone('sine', bf, bf, s16 * 12, 0.09, { dest: this.music, when: t, attack: 0.05 });
-      }
-      // Lead arpeggio.
+
+      // Arpeggio.
       const pattern = [0, 2, 4, 7, 4, 2, 4, 9, 0, 4, 7, 9, 7, 4, 2, 4];
-      const keep = ((bar * 5 + s * 7) % 16) / 16 < m.density;
-      if (keep && (drums !== 'none' || s % 2 === 0)) {
-        const f = semis(m.root * 4, note(deg + pattern[s]));
-        this.tone(m.lead ?? 'triangle', f, f, s16 * 1.6, 0.03, { dest: this.music, when: t, cutoff: 3200 });
+      const keep = ((bar * 5 + s * 7) % 16) / 16 < m.density + (drop || hot ? 0.2 : 0);
+      if (keep && !intro && (drums !== 'lofi' || s % 2 === 0)) {
+        const f = semis(m.root * 4, note(deg + pattern[s]) + (drop && s % 4 === 3 ? 12 : 0));
+        this.tone(m.lead === 'sine' ? 'sine' : 'triangle', f, f, s16 * 1.5, breakdown ? 0.03 : 0.05, { dest: this.music, when: t, cutoff: 3600 });
       }
+
+      // Melody hook: in the groove and the drop (an octave up on the drop), softly in the breakdown.
+      if (!intro) {
+        const hs = (this.step - this.barBase * 16 + (boss ? 32 : 0)) % 32;
+        for (const n of hook) {
+          if (n.step !== hs) continue;
+          const f = semis(m.root * 8, note(deg + n.deg) + (drop ? 12 : 0) - (m.drums === 'lofi' ? 12 : 0));
+          const vol = breakdown ? 0.035 : 0.06;
+          const dur = s16 * n.len * 0.95;
+          const wave = m.lead ?? 'triangle';
+          this.tone(wave, f, f, dur, vol, { dest: this.music, when: t, cutoff: wave === 'sawtooth' || wave === 'square' ? 2800 : 5000, detune: -6, attack: 0.008 });
+          this.tone(wave, f, f, dur, vol * 0.7, { dest: this.music, when: t, cutoff: 2800, detune: 7, attack: 0.008 });
+        }
+      }
+
+      // Riser into the drop.
+      if (arr === 11 && s === 0) this.noise(s16 * 16, 0.08, 400, 7000, 2, 'bandpass', 0.3, this.music, t);
+
       // Drums.
-      switch (drums) {
-        case 'four':
-          if (s % 4 === 0) this.kick(t);
-          if (s === 4 || s === 12) this.snare(t);
-          if (s % 4 === 2) this.hat(t, 0.07, true);
-          else if (s % 2 === 1) this.hat(t, 0.035);
-          break;
-        case 'break':
-          if (s === 0 || s === 7 || s === 10) this.kick(t);
-          if (s === 4 || s === 12) this.snare(t);
-          if (s % 2 === 0) this.hat(t, 0.05);
-          if (s === 15 && bar % 2 === 1) this.snare(t, 0.12);
-          break;
-        case 'half':
-          if (s === 0 || s === 11) this.kick(t, 0.45);
-          if (s === 8) this.snare(t, 0.24);
-          if (s % 2 === 0) this.hat(t, 0.04);
-          break;
-        case 'march':
-          if ([0, 3, 6, 8, 11, 14].includes(s)) this.kick(t, 0.55);
-          if (s === 4 || s === 12) this.snare(t, 0.26);
-          this.hat(t, s % 2 ? 0.03 : 0.06);
-          if (bar % 4 === 3 && s >= 12) this.tom(t, [220, 180, 150, 120][s - 12], 0.32);
-          break;
-      }
+      if (!(breakdown && drums !== 'lofi')) {
+        const lite = intro && arr === 0;
+        switch (drums) {
+          case 'four':
+            if (s % 4 === 0 && !lite) this.kick(t);
+            if ((s === 4 || s === 12) && !lite) this.snare(t);
+            if (s % 4 === 2) this.hat(t, 0.08, true);
+            else if (s % 2 === 1 || drop) this.hat(t, 0.04);
+            break;
+          case 'break':
+            if ((s === 0 || s === 7 || s === 10) && !lite) this.kick(t);
+            if ((s === 4 || s === 12) && !lite) this.snare(t);
+            if (s % 2 === 0 || drop) this.hat(t, 0.055);
+            if (s === 15 && bar % 2 === 1) this.snare(t, 0.16);
+            break;
+          case 'half':
+            if ((s === 0 || s === 11) && !lite) this.kick(t, 0.7);
+            if (s === 8 && !lite) this.snare(t, 0.34);
+            if (s % 2 === 0) this.hat(t, 0.05);
+            break;
+          case 'march':
+            if ([0, 3, 6, 8, 11, 14].includes(s) && !lite) this.kick(t, 0.75);
+            if ((s === 4 || s === 12) && !lite) this.snare(t, 0.36);
+            this.hat(t, s % 2 ? 0.035 : 0.07);
+            if (bar % 4 === 3 && s >= 12) this.tom(t, [220, 180, 150, 120][s - 12], 0.4);
+            break;
+          case 'lofi':
+            if ((s === 0 || s === 10 || (s === 7 && bar % 2 === 1)) && !breakdown) this.kick(t, 0.6);
+            if ((s === 4 || s === 12) && !lite) this.snare(t, 0.22, true);
+            if (s % 2 === 0) this.hat(t, s % 4 === 2 ? 0.045 : 0.03);
+            // Vinyl crackle.
+            if (Math.random() < 0.35) this.noise(0.006, 0.05 + Math.random() * 0.05, 3000, 2500, 0.8, 'highpass', 0, this.music, t + Math.random() * s16);
+            break;
+        }
+        // Snare roll into the drop; extra hats when things heat up.
+        if (arr === 11 && s >= 8 && drums !== 'lofi') this.snare(t, 0.1 + (s - 8) * 0.03);
+        if (hot && s % 2 === 1 && drums !== 'lofi') this.hat(t, 0.035);
+      } else if (arr === 11 && s >= 8) this.snare(t, 0.1 + (s - 8) * 0.03);
+
       this.nextStep += s16;
       this.step++;
     }
@@ -503,9 +644,11 @@ export class AudioEngine {
   // ---------- sound effects ----------
 
   shoot() {
-    if (!this.canPlay('shoot', 0.05)) return;
-    this.tone('square', 980, 420, 0.07, 0.035, { cutoff: 3000 });
-    this.tone('sine', 520, 260, 0.08, 0.04);
+    // Fires 12 times a second, so it stays soft and short, with a little pitch drift.
+    if (!this.canPlay('shoot', 0.07)) return;
+    const f = 1150 + Math.random() * 140;
+    this.tone('square', f, f * 0.45, 0.055, 0.012, { cutoff: 2600 });
+    this.tone('sine', f * 0.5, f * 0.22, 0.06, 0.018);
   }
   pickup(combo: number) {
     if (!this.canPlay('pickup', 0.03)) return;
@@ -617,6 +760,34 @@ export class AudioEngine {
     if (!this.ctx) return;
     this.noise(2.2, 0.3, 700, 40, 0.5, 'lowpass', 0.8);
     this.tone('sine', 220, 32, 2.4, 0.2, { reverb: 0.8 });
+  }
+  /** Level number slamming in: a whoosh into a low impact. */
+  slam() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.noise(0.35, 0.18, 600, 4800, 1.6, 'bandpass', 0.2, undefined, t);
+    this.tone('sine', 120, 40, 0.5, 0.35, { when: t + 0.3, attack: 0.002 });
+    this.noise(0.4, 0.2, 2400, 200, 0.7, 'lowpass', 0.4, undefined, t + 0.3);
+  }
+  /** Low-energy heartbeat: lub-dub. */
+  heartbeat() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.tone('sine', 62, 44, 0.16, 0.3, { when: t, attack: 0.004 });
+    this.tone('sine', 58, 40, 0.14, 0.22, { when: t + 0.17, attack: 0.004 });
+  }
+  /** Boss killing blow: a bright major chord swelling out of the explosion. */
+  victoryHit() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.25;
+    for (const [n, d] of [
+      [0, -5],
+      [4, 5],
+      [7, -3],
+      [12, 4],
+    ] as const)
+      this.tone('sawtooth', semis(220, n), semis(220, n), 2.4, 0.05, { when: t, attack: 0.05, detune: d, cutoff: 2400, reverb: 0.7 });
+    this.tone('sine', 880, 880, 2, 0.05, { when: t + 0.1, reverb: 0.9 });
   }
   pageFlip() {
     if (!this.ctx) return;
