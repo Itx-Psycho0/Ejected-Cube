@@ -84,7 +84,7 @@ The controls are deliberately small:
 | Action | Mouse / keyboard | Touch |
 |---|---|---|
 | Fly | Move the mouse: the craft glides to the pointer, pitching and banking as it goes | Drag anywhere |
-| Fire | Automatic: the laser fires on its own (turn Auto-fire off in Settings to fire with left click or Space) | Automatic |
+| Fire | Automatic: the laser fires on its own during play (turn Auto-fire off in Settings to fire with left click or Space). It holds fire during boss warnings, title cards and page turns | Automatic |
 | Dodge | Shift or right click: a fast barrel roll up or down, toward the pointer. Nothing can hit you during it, and it rams small creatures | DODGE |
 | Flare | Q, when the ring is full: clears the screen | FLARE |
 | Pause | Esc / P | Pause button |
@@ -93,7 +93,11 @@ On phones the game runs in landscape and goes fullscreen when you start. Hold th
 
 ![Phone, landscape](docs/screenshots/12-mobile.jpg)
 
-- **One bar: Energy.** Flying burns it slowly and hits take a chunk. Pickups give it back.
+- **Energy.** Flying burns it slowly and hits take a chunk. Pickups give it back.
+- **Laser charge.** Every shot uses a little (a full charge is about 13 seconds of fire). Below a third the beam fades: thinner, dimmer and slower. At zero it stops.
+  - Fly into a glowing **laser cell** to refill it. One arrives as soon as you run low, and if you miss it another follows a moment later.
+  - Cells also turn up now and then while the laser isn't full.
+  - Each new level adds a quarter charge, and a boss fight never starts below half.
 - **Chain pickups** for a combo; combos fill the flare ring faster.
 - **Power-ups:** shield, magnet and triple shot.
 - **Boss fights hold the screen still.** Red lanes mark where the next attack will land; each boss has its own patterns and a second phase.
@@ -147,6 +151,8 @@ Runtime dependencies: `three` and `postprocessing` (plus font files).
   - A sanitize pass clamps the HDR buffer before bloom, so a stray Inf or NaN pixel can't be blurred across the whole screen.
   - Flash lights and mirror-like materials are capped so highlights stay in half-float range.
   - Canvas resizes (phone address bar, fullscreen) happen right before a render instead of between frames.
+  - The page turn between levels is always a light paper page. Dark worlds used to slide a near-black sheet across the whole screen.
+  - Lost GPU contexts pause the game and recover. A zero-size viewport or a broken camera can no longer blank a frame.
 - Object pools for every enemy, pickup and projectile: no allocations during play
 - Instanced rendering for props, wildlife, clouds, sparks, bullets and boss limbs
 - GPU particles animated entirely in the vertex shader

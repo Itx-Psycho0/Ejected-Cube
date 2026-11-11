@@ -52,6 +52,8 @@ export interface HudState {
   progress: number;
   energy: number;
   maxEnergy: number;
+  /** Laser charge 0..1. */
+  laser: number;
   score: number;
   combo: number;
   lumen: number;
@@ -432,7 +434,7 @@ export class UI {
       <div class="grid2">
         <div class="panel"><div class="keys">
           <kbd>Mouse</kbd><span>Your craft glides to the pointer</span>
-          <kbd>Laser</kbd><span>Fires on its own (Settings → Gameplay → Auto-fire). With auto-fire off, hold left click or Space</span>
+          <kbd>Laser</kbd><span>Fires on its own during play (Settings → Gameplay → Auto-fire). With auto-fire off, hold left click or Space</span>
           <kbd>Shift / Right click</kbd><span>Dodge: a fast roll up or down, toward your pointer. Nothing can hit you during it</span>
           <kbd>Q</kbd><span>Flare, when its ring is full: clears the screen</span>
           <kbd>Esc / P</kbd><span>Pause</span>
@@ -443,6 +445,7 @@ export class UI {
           <div class="tip"><i class="dot" style="background:var(--accent2)"></i><span><b>Chain pickups</b> for a combo. Combos fill the flare ring faster.</span></div>
           <div class="tip"><i class="dot" style="background:var(--danger)"></i><span><b>Bosses</b> hold the screen still. Red lanes show where the next attack lands.</span></div>
           <div class="tip"><i class="dot" style="background:var(--accent)"></i><span><b>Two ways to play.</b> <b>Checkpoints</b>: die and you continue from the level you reached. <b>Classic</b>: one journey, and every death sends you back to level 1. Switch on the home screen or in Settings.</span></div>
+          <div class="tip"><i class="dot" style="background:#58e1ff"></i><span><b>Laser charge.</b> Every shot uses a little. When it runs low the beam fades, then stops. Fly into a glowing <b>laser cell</b> to refill it: one arrives as soon as you run low, and another follows if you miss it.</span></div>
           <div class="tip"><i class="dot" style="background:var(--accent2)"></i><span><b>Graze and gates.</b> Skim past bullets for bonus score, and thread the gaps in the columns to grow your combo.</span></div>
           <div class="tip"><i class="dot" style="background:var(--ink)"></i><span><b>Your craft changes with the world:</b> a capsule underwater, a fighter in the sky, a starship in space.</span></div>
         </div>
@@ -817,10 +820,13 @@ export class UI {
   /** A sheet of the next world's paper sweeps across; `mid` runs while the screen is covered. */
   pageTurn(next: ThemeDef, title: string, sub: string, mid: () => void, hold?: () => Promise<unknown>): Promise<void> {
     return new Promise((resolve) => {
-      const sheet = h(`<div id="page"><div style="text-align:center;padding:0 24px"><div class="label" style="color:${next.ui.muted}">${esc(sub)}</div>
-        <h2 style="font-family:${next.ui.display};font-weight:${next.ui.titleWeight};color:${next.ui.ink}">${esc(title)}</h2>
-        <p style="color:${next.ui.ink};font-family:${next.ui.body}">${esc(next.line)}</p></div></div>`);
-      sheet.style.background = `linear-gradient(100deg, ${next.ui.panelSolid}, ${next.ui.bg})`;
+      // Always a light paper page of the Atlas, whatever the world. Dark worlds
+      // used to turn a near-black sheet across the whole screen, which read as
+      // the screen going black between levels.
+      const sheet = h(`<div id="page"><i class="page-band" style="background:${next.ui.accent}"></i><div style="text-align:center;padding:0 24px"><div class="label" style="color:${next.ui.accent}">${esc(sub)}</div>
+        <h2 style="font-family:${next.ui.display};font-weight:${next.ui.titleWeight};color:#2a241e">${esc(title)}</h2>
+        <p style="color:#4a4036;font-family:${next.ui.body}">${esc(next.line)}</p></div></div>`);
+      sheet.style.background = 'linear-gradient(100deg, #f6efe0, #eadfc8)';
       this.root.appendChild(sheet);
       audio.pageFlip();
       const fast = this.save.data.settings.reducedMotion;
@@ -862,6 +868,7 @@ export class UI {
         </div>
         <div class="meters">
           <div class="meter energy" data-h="energym"><span class="hud-label">Energy</span><span class="track"><i data-h="energy"></i></span><b data-h="energyn">100</b></div>
+          <div class="meter laser" data-h="laserm"><span class="hud-label">Laser</span><span class="track"><i data-h="laser"></i></span><b data-h="lasern">100</b></div>
           <div class="hud-chips" data-h="chips"></div>
         </div>
       </div>
@@ -941,6 +948,10 @@ export class UI {
     this.set('energy', `${(e * 100).toFixed(1)}%`, 'width');
     this.set('energyn', String(Math.ceil(s.energy)));
     this.set('energym', `meter energy${e < 0.28 ? ' warn' : ''}`, 'class');
+    const l = Math.max(0, Math.min(1, s.laser));
+    this.set('laser', `${(l * 100).toFixed(1)}%`, 'width');
+    this.set('lasern', l <= 0 ? 'EMPTY' : String(Math.ceil(l * 100)));
+    this.set('laserm', `meter laser${l <= 0 ? ' empty' : l < 0.3 ? ' warn' : ''}`, 'class');
     this.set('score', formatInt(s.score));
     this.set('combo', s.combo > 1 ? `×${s.combo}` : '');
     const ring = (k: string, v: number) => this.set(k, String(163 * (1 - Math.max(0, Math.min(1, v)))), 'dash');

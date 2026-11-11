@@ -27,6 +27,8 @@ export interface Shot {
   life: number;
   /** Seconds since fired: the beam grows out of the muzzle. */
   age: number;
+  /** 0..1 beam strength: thins and dims as the laser charge runs low. */
+  power: number;
   index: number;
 }
 
@@ -126,6 +128,7 @@ export class Projectiles {
       damage: 1,
       life: 0,
       age: 0,
+      power: 1,
       index,
     }));
     this.bullets = new Pool(400, (index) => ({
@@ -143,7 +146,7 @@ export class Projectiles {
     }));
   }
 
-  fire(kind: ShotKind, x: number, y: number, vx: number, vy: number, damage: number) {
+  fire(kind: ShotKind, x: number, y: number, vx: number, vy: number, damage: number, power = 1) {
     const s = this.shots.acquire();
     if (!s) return null;
     s.kind = kind;
@@ -153,6 +156,7 @@ export class Projectiles {
     s.damage = damage;
     s.life = kind === 'torpedo' ? 3 : 1.6;
     s.age = 0;
+    s.power = power;
     return s;
   }
 
@@ -216,13 +220,14 @@ export class Projectiles {
       d.rotation.set(0, 0, Math.atan2(s.vel.y, s.vel.x));
       const torp = s.kind === 'torpedo';
       // The beam grows out of the muzzle, so it never pokes out behind the craft.
-      const len = torp ? 14 : Math.min(BOLT_LEN, 6 + s.age * s.vel.length());
-      d.scale.set(len, torp ? 2 : 1, torp ? 2 : 1);
+      const len = torp ? 14 : Math.min(BOLT_LEN * (0.55 + s.power * 0.45), 6 + s.age * s.vel.length());
+      const thick = torp ? 2 : 0.4 + s.power * 0.6;
+      d.scale.set(len, thick, thick);
       d.updateMatrix();
       this.shotMesh.setMatrixAt(n, d.matrix);
       this.glowMesh.setMatrixAt(n, d.matrix);
-      this.shotMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xffb347 : this.laserCore).multiplyScalar(torp ? 3 : 2.6));
-      this.glowMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xff8a2a : this.laserGlow));
+      this.shotMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xffb347 : this.laserCore).multiplyScalar(torp ? 3 : 0.8 + 1.8 * s.power));
+      this.glowMesh.setColorAt(n, this.tmpColor.setHex(torp ? 0xff8a2a : this.laserGlow).multiplyScalar(torp ? 1 : 0.25 + 0.75 * s.power));
       n++;
     }
     for (const m of [this.shotMesh, this.glowMesh]) {

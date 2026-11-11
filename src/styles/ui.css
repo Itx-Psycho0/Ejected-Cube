@@ -870,7 +870,7 @@ table.records th {
 }
 .meter {
   display: grid;
-  grid-template-columns: auto clamp(110px, 16vw, 200px) 3ch;
+  grid-template-columns: 74px clamp(110px, 16vw, 200px) 5.5ch;
   gap: 10px;
   align-items: center;
   font-size: 12px;
@@ -1553,7 +1553,7 @@ table.records th {
     font-size: 22px;
   }
   .meter {
-    grid-template-columns: auto 120px 3ch;
+    grid-template-columns: 70px 120px 5.5ch;
   }
   .ability {
     width: 44px;
@@ -1646,7 +1646,7 @@ table.records th {
 }
 @media (max-width: 480px) {
   .meter {
-    grid-template-columns: auto 64px 3ch;
+    grid-template-columns: 64px 64px 5ch;
     gap: 6px;
   }
   .dist {
@@ -1886,4 +1886,37 @@ table.records th {
   .slam .w {
     animation-duration: 0.01s;
   }
+}
+
+/* ============ laser charge ============ */
+.meter.laser i {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, #58e1ff), #bff6ff);
+}
+.meter.laser .track {
+  height: 7px;
+}
+.meter.laser b {
+  font-size: 11px;
+}
+.meter.laser.empty b {
+  color: var(--danger);
+  animation: laser-empty 0.6s steps(2) infinite;
+}
+.meter.laser.empty .track {
+  border-color: var(--danger);
+}
+@keyframes laser-empty {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Accent band down the page edge of the paper page turn. */
+#page .page-band {
+  position: absolute;
+  right: 6%;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  opacity: 0.85;
 }

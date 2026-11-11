@@ -40,6 +40,8 @@ export class Player {
 
   energy = 100;
   lumen = 0;
+  /** Laser charge, 0..1. Each shot uses a little; laser cells refill it. */
+  laser = 1;
   alive = true;
   deathCause: DeathCause = 'hull';
 
@@ -63,6 +65,7 @@ export class Player {
     this.stats = stats;
     this.energy = stats.maxEnergy;
     this.lumen = 0;
+    this.laser = 1;
     this.alive = true;
     this.invuln = 0;
     this.hitFlash = 0;

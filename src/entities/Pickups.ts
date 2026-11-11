@@ -27,7 +27,7 @@ import type { PowerUp } from './Player';
 import { merge } from '../world/geometry';
 import type { Family } from '../themes/themes';
 
-export type PickupKind = 'spark' | 'repair' | 'shard' | PowerUp;
+export type PickupKind = 'spark' | 'repair' | 'shard' | 'laser' | PowerUp;
 
 export interface Pickup {
   active: boolean;
@@ -84,6 +84,7 @@ export class Pickups {
     const build: [PickupKind, number, () => Object3D][] = [
       ['repair', 3, () => this.repairModel()],
       ['shard', 4, () => this.shardModel()],
+      ['laser', 2, () => this.laserModel()],
       ...POWERUPS.map((p) => [p, 2, () => this.powerModel(p)] as [PickupKind, number, () => Object3D]),
     ];
     for (const [kind, n, make] of build) {
@@ -138,6 +139,41 @@ export class Pickups {
     heart.visible = cell.visible = false;
     return g;
   }
+
+  /** Laser cell: a small armoured box with glowing charge bars and a bolt on each face. */
+  private laserModel() {
+    const g = new Group();
+    const shell = new MeshStandardMaterial({ color: 0x1c2733, metalness: 0.6, roughness: 0.35 });
+    const glow = new MeshStandardMaterial({ color: 0x000000, emissive: 0x58e1ff, emissiveIntensity: 2.6, toneMapped: false });
+    this.laserGlow.push(glow);
+    const box = new Mesh(new BoxGeometry(9, 7, 7), shell);
+    const bars = [-2.6, 0, 2.6].map((x) => new BoxGeometry(1.3, 5.2, 7.4).translate(x, 0, 0));
+    const charge = new Mesh(merge(bars), glow);
+    // A lightning bolt on the front and back.
+    const bolt = merge([
+      new BoxGeometry(1.2, 3.4, 0.6).translate(0.6, 1.2, 0).rotateZ(-0.35),
+      new BoxGeometry(1.2, 3.4, 0.6).translate(-0.6, -1.2, 0).rotateZ(-0.35),
+    ]);
+    const front = new Mesh(bolt, new MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+    front.position.z = 3.9;
+    const back = front.clone();
+    back.position.z = -3.9;
+    const edge = new Mesh(new BoxGeometry(9.6, 1, 7.6), new MeshStandardMaterial({ color: 0xffc35a, metalness: 0.3, roughness: 0.4 }));
+    edge.position.y = 3.6;
+    const edge2 = edge.clone();
+    edge2.position.y = -3.6;
+    g.add(box, charge, front, back, edge, edge2, this.halo(0x58e1ff, 11));
+    return g;
+  }
+
+  /** Laser cell glow follows the world's laser colour. */
+  private laserGlow: MeshStandardMaterial[] = [];
+  setLaserColor(hex: number) {
+    for (const m of this.laserGlow) m.emissive.setHex(hex);
+  }
+
+  /** Items that scrolled away uncollected since the last call, by kind. */
+  readonly missed = { laser: 0 };
 
   private shardModel() {
     const g = new Group();
@@ -273,6 +309,7 @@ export class Pickups {
         continue;
       }
       if (p.pos.x < -bounds.x - 50) {
+        if (p.kind === 'laser') this.missed.laser++;
         p.active = false;
         if (p.root) p.root.visible = false;
         continue;

@@ -126,8 +126,10 @@ export class Renderer {
   }
 
   resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    // Mid-rotation and fullscreen changes can report a zero size for a moment;
+    // a zero height made the aspect ratio infinite and the next frame blank.
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
     const pr = Math.min(window.devicePixelRatio || 1, this.preset.maxPixelRatio) * this.renderScale;
     this.gl.setPixelRatio(pr);
     this.gl.setSize(w, h, false);
@@ -157,6 +159,14 @@ export class Renderer {
     this.aberration = Math.max(0, this.aberration - dt * 2.2);
     const a = this.preset.chromatic ? 0.0006 * this.chromaticBase + this.aberration * 0.004 : 0;
     this.caOffset.set(a, a * 0.6);
+    // Never render through a broken camera (a NaN anywhere blanks the frame).
+    const c = this.camera;
+    if (!Number.isFinite(c.position.x + c.position.y + c.position.z + c.quaternion.x + c.quaternion.w + c.fov)) {
+      c.position.set(0, 0, 230);
+      c.quaternion.identity();
+      c.fov = 48;
+      c.updateProjectionMatrix();
+    }
     this.gl.info.reset();
     this.composer.render(dt);
   }

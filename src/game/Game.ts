@@ -83,6 +83,10 @@ const VILLAIN_LINES = [
   'Come, then. Come to the last page.',
 ];
 const FIRE_SPEED = 1050;
+/** Shots in a full laser charge (about 13 seconds of fire). */
+const LASER_SHOTS = 160;
+/** Below this charge the beam starts to fade: thinner, dimmer and slower. */
+const LASER_LOW = 0.35;
 
 interface TutorialStep {
   title: string;
@@ -170,6 +174,17 @@ export class Game {
     // Resizing clears the canvas. Doing it between frames left a blank flash on
     // phones (address bar, fullscreen); now it happens right before a render.
     const onResize = () => (this.resizePending = true);
+    // A lost GPU context (phones under memory pressure, backgrounded tabs) shows
+    // a blank canvas: pause, and rebuild sizes when the browser restores it.
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      if (['play', 'boss', 'bossIntro', 'intro'].includes(this.mode)) this.setPaused(true);
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      this.resizePending = true;
+    });
     window.addEventListener('resize', onResize);
     window.visualViewport?.addEventListener('resize', onResize);
     document.addEventListener('visibilitychange', () => {
@@ -268,6 +283,7 @@ export class Game {
     this.theme = t;
     if (this.projectiles) this.projectiles.laserGlow = parseInt(t.ui.accent.slice(1), 16);
     this.speedLines?.setColor(parseInt(t.ui.accent.slice(1), 16));
+    this.pickups?.setLaserColor(parseInt(t.ui.accent.slice(1), 16));
     this.ui.theme = t;
     this.atmo.setTheme(t, instant);
     this.ground.setTheme(t);
@@ -612,6 +628,9 @@ export class Game {
         this.rig.offset.set(0, 0, 0);
         this.rig.setZoom(1);
         this.fireCd = 0;
+        this.cellTimer = 0;
+        this.cellRandom = 20;
+        this.pickups.missed.laser = 0;
         audio.setEngine(next.family);
         if (!tutorial) {
           this.save.data.stats.runs++;
@@ -644,8 +663,10 @@ export class Game {
   // ------------------------------------------------------------------ frame
 
   private resizePending = false;
+  private contextLost = false;
 
   private frame(dt: number, raw: number) {
+    if (this.contextLost) return;
     if (this.resizePending) {
       this.resizePending = false;
       this.renderer.resize();
@@ -845,6 +866,7 @@ export class Game {
       }
     }
     if (!tut) this.pickups.direct(dt, this.bounds, !transition, !inBoss && !transition, p.energy / p.stats.maxEnergy);
+    if (!tut) this.directLaserCells(dt);
 
     this.updateCombat(dt, inBoss ? BASE_SPEED * 0.5 : this.scrollSpeed);
 
@@ -896,14 +918,28 @@ export class Game {
     this.fireCd -= dt;
     if (!p.alive || !p.controllable) return;
 
-    if (input.isHeld('fire') && this.fireCd <= 0) {
-      this.fireCd = 1 / p.stats.fireRate;
+    // The laser only fires in actual play: never during the boss warning, the
+    // title card, the boss rolling in or dying, page turns or the Blot's lines.
+    const tut = this.run.tutorial >= 0;
+    const fighting = this.mode === 'play' || (this.mode === 'boss' && this.boss?.state === 'fight');
+    if (input.isHeld('fire') && this.fireCd <= 0 && fighting && (p.laser > 0 || tut)) {
+      const strength = tut ? 1 : Math.min(1, p.laser / LASER_LOW);
+      this.fireCd = 1 / (p.stats.fireRate * (0.4 + 0.6 * strength));
       p.model.muzzle.getWorldPosition(this.v3);
       const dmg = p.stats.damage;
+      const power = 0.3 + 0.7 * strength;
       if (p.powerups.spread > 0) {
-        for (const a of [-0.14, 0, 0.14]) this.projectiles.fire('bolt', this.v3.x, this.v3.y, Math.cos(a) * FIRE_SPEED, Math.sin(a) * FIRE_SPEED, dmg);
-      } else this.projectiles.fire('bolt', this.v3.x, this.v3.y, FIRE_SPEED, 0, dmg);
+        for (const a of [-0.14, 0, 0.14]) this.projectiles.fire('bolt', this.v3.x, this.v3.y, Math.cos(a) * FIRE_SPEED, Math.sin(a) * FIRE_SPEED, dmg, power);
+      } else this.projectiles.fire('bolt', this.v3.x, this.v3.y, FIRE_SPEED, 0, dmg, power);
       audio.shoot();
+      if (!tut) {
+        p.laser = Math.max(0, p.laser - 1 / LASER_SHOTS);
+        if (p.laser <= 0) {
+          audio.laserEmpty();
+          this.popupAt(p.pos.x + 20, p.pos.y + 18, 'Laser empty!');
+          this.hintOnce('laser-empty', 'Out of laser! Fly into a laser cell to recharge. A new one comes if you miss it.', 5);
+        }
+      }
     }
     if (input.consume('dash') && p.tryDodge()) {
       audio.dash();
@@ -1073,6 +1109,33 @@ export class Game {
     }
   }
 
+  /**
+   * Laser cells: one arrives as soon as the charge runs low, and if it scrolls
+   * away uncollected another follows shortly. Now and then one also turns up
+   * at random while the laser isn't full.
+   */
+  private cellTimer = 0;
+  private cellRandom = 20;
+  private directLaserCells(dt: number) {
+    const p = this.player;
+    const live = this.mode === 'play' || (this.mode === 'boss' && this.boss?.state === 'fight');
+    this.cellTimer -= dt;
+    this.cellRandom -= dt;
+    if (this.pickups.missed.laser > 0) {
+      this.pickups.missed.laser = 0;
+      this.cellTimer = Math.min(this.cellTimer, 1.2);
+    }
+    if (!live || !p.alive || this.pickups.countActive('laser') > 0) return;
+    const low = p.laser < 0.3;
+    if ((low && this.cellTimer <= 0) || (p.laser < 0.85 && this.cellRandom <= 0)) {
+      const b = this.bounds;
+      this.pickups.spawn('laser', b.x + 40, (Math.random() * 2 - 1) * b.y * 0.55);
+      this.cellTimer = 2.5;
+      this.cellRandom = 16 + Math.random() * 12;
+      if (low) this.hintOnce('laser-cell', 'Laser running low: grab the glowing laser cell.', 4);
+    }
+  }
+
   private startSurge() {
     const run = this.run;
     run.surge = 7;
@@ -1178,6 +1241,12 @@ export class Game {
         this.particles.burst(this.v3, { count: 6, color: 0xfff2b0, speed: 55, size: 5, life: 0.4 });
         break;
       }
+      case 'laser':
+        p.laser = 1;
+        audio.laserReload();
+        this.popupAt(it.pos.x, it.pos.y, 'Laser charged');
+        this.particles.burst(this.v3, { count: 24, color: this.projectiles.laserGlow, speed: 140, size: 6, life: 0.5 });
+        break;
       case 'repair':
         p.addEnergy(30);
         audio.powerup();
@@ -1218,6 +1287,8 @@ export class Game {
   private endWarning?: () => void;
 
   private startBoss() {
+    // Never walk into a boss with an empty laser.
+    this.player.laser = Math.max(this.player.laser, 0.5);
     const final = this.run.def.bossSlot === 4;
     const info = final ? BOSS_TABLE.water[4] : BOSS_TABLE[this.theme.family][this.run.def.bossSlot];
     this.run.boss = info;
@@ -1342,6 +1413,7 @@ export class Game {
     const run = this.run;
     if (!run.hurtThisLevel) this.missionAdd('clean');
     run.score += 1000 * run.level;
+    this.player.laser = Math.min(1, this.player.laser + 0.25);
     run.level++;
     run.def = levelDef(run.level);
     run.levelTime = 0;
@@ -1585,6 +1657,7 @@ export class Game {
       progress: this.mode === 'boss' ? 1 : clamp(run.levelTime / run.def.duration, 0, 1),
       energy: p.energy,
       maxEnergy: p.stats.maxEnergy,
+      laser: this.run && this.run.tutorial >= 0 ? 1 : p.laser,
       score: run.score,
       combo: run.combo,
       lumen: p.lumen,

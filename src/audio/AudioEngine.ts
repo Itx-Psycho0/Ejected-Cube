@@ -769,6 +769,20 @@ export class AudioEngine {
     this.tone('sine', 120, 40, 0.5, 0.35, { when: t + 0.3, attack: 0.002 });
     this.noise(0.4, 0.2, 2400, 200, 0.7, 'lowpass', 0.4, undefined, t + 0.3);
   }
+  /** The laser running dry: a falling power-down whine. */
+  laserEmpty() {
+    if (!this.canPlay('lempty', 1)) return;
+    this.tone('sawtooth', 900, 120, 0.45, 0.05, { cutoff: 2200 });
+    this.tone('square', 220, 90, 0.3, 0.03, { cutoff: 1200, when: this.ctx!.currentTime + 0.1 });
+  }
+  /** Laser cell collected: a rising charge-up into a bright click. */
+  laserReload() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.tone('sawtooth', 160, 1400, 0.32, 0.05, { cutoff: 3400 });
+    this.tone('sine', 1760, 1760, 0.18, 0.07, { when: t + 0.3, reverb: 0.4 });
+    this.noise(0.05, 0.12, 6000, 4000, 1, 'highpass', 0, undefined, t + 0.3);
+  }
   /** Low-energy heartbeat: lub-dub. */
   heartbeat() {
     if (!this.ctx) return;
