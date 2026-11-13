@@ -2,6 +2,8 @@
 
 # Ejected Cube
 
+<sub><em><a href="https://itx-psycho0.github.io/Ejected-Cube/">Click here to play the game</a></em></sub>
+
 **A 3D flying shooter where every level is a different world, made with Three.js and TypeScript.**
 
 The Atlas is a book where every page is a whole world. A drop of ink, the Blot, is eating its pages. The Atlas Engine fired its last cube of light out into the scattered pages, and you fly it home, one world at a time.
