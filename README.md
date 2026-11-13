@@ -79,6 +79,8 @@ In Settings → Worlds you can choose which worlds are in the rotation, lock the
 
 ## Playing
 
+[Play Ejected Cube online](https://itx-psycho0.github.io/Ejected-Cube/)
+
 The controls are deliberately small:
 
 | Action | Mouse / keyboard | Touch |
